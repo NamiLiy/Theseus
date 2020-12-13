@@ -203,6 +203,46 @@ impl Mapper {
             flags,
         })
     }
+
+    /// Maps the given `AllocatedPages` to randomly chosen (allocated) physical frames.
+    /// 
+    /// Consumes the given `AllocatedPages` and returns a `MappedPages` object which contains those `AllocatedPages`.
+    pub fn map_allocated_huge_pages<A>(&mut self, pages: AllocatedPages, flags: EntryFlags, allocator: &mut A)
+        -> Result<MappedPages, &'static str>
+        where A: FrameAllocator
+    {
+        // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
+        let mut top_level_flags = flags.clone();
+        top_level_flags.set(EntryFlags::NO_EXECUTE, false);
+        // top_level_flags.set(EntryFlags::WRITABLE, true); // is the same true for the WRITABLE bit?
+
+        for page in pages.deref().clone() {
+
+            // TODO allocate frames corresponding to huge pages
+            let frame = allocator.allocate_frame()
+                .ok_or("map_allocated_pages(): couldn't allocate new frame, out of memory!")?;
+
+            // TODO change to support huge pages
+            let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+            let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
+            let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
+
+            if !p1[page.p1_index()].is_unused() {
+                error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+                    page.start_address(), frame.start_address()
+                );
+                return Err("map_allocated_pages(): page was already in use");
+            } 
+
+            p1[page.p1_index()].set(frame, flags | EntryFlags::PRESENT);
+        }
+
+        Ok(MappedPages {
+            page_table_p4: self.target_p4.clone(),
+            pages,
+            flags,
+        })
+    }
 }
 
 

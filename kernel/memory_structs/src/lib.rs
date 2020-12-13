@@ -253,6 +253,21 @@ impl PhysicalMemoryArea {
     }
 }
 
+pub struct HugePageSize(usize);
+
+impl HugePageSize {
+    /// Creates a new `VirtualAddress`,
+    /// checking that the address is canonical,
+    /// i.e., bits (64:48] are sign-extended from bit 47.
+    pub fn new(page_size_in_mb: usize) -> Result<HugePageSize, &'static str> {
+        // TODO Check whether the huge pagesize is valid on the architecture
+        Ok(HugePageSize(page_size_in_mb*1024*1024))
+    }
+
+    //Page1GB: 1-GByte pages.If CPUID.80000001H:EDX.Page1GB [bit 26] = 1, 1-GByte pages are supported with IA-32e paging (see Section 4.5)
+
+    
+}
 
 /// A `Frame` is a chunk of **physical** memory,
 /// similar to how a `Page` is a chunk of **virtual** memory.

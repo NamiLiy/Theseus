@@ -23,7 +23,7 @@ use core::{
 	ops::Deref,
 };
 use kernel_config::memory::*;
-use memory_structs::{VirtualAddress, Page, PageRange};
+use memory_structs::{VirtualAddress, Page, PageRange, HugePageSize};
 use spin::Mutex;
 
 
@@ -462,6 +462,96 @@ pub fn allocate_pages_deferred(
 	Err("out of virtual address space, or requested virtual address not covered by page allocator.")
 }
 
+// TODO Currently allocate pages from the same 4K page list. We need to change it to allocate from a new list
+pub fn allocate_huge_pages_deferred(
+	requested_vaddr: Option<VirtualAddress>,
+	num_pages: usize,
+) -> Result<(AllocatedPages, DeferredAllocAction<'static>), &'static str> {
+	if num_pages == 0 {
+		warn!("PageAllocator: requested an allocation of 0 pages... stupid!");
+		return Err("cannot allocate zero pages");
+	}
+
+	let desired_start_page = requested_vaddr.map(|vaddr| Page::containing_address(vaddr));
+
+	let mut locked_list = FREE_PAGE_LIST.lock();
+	for c in locked_list.iter_mut() {
+		// Look for the chunk that contains the desired address, 
+		// or any chunk that is large enough, if no desired address was requested.
+		// Obviously, we cannot use any chunk that is already allocated. 
+		let potential_start_page = desired_start_page.unwrap_or(*c.pages.start());
+		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
+		let potential_end_page   = potential_start_page + (num_pages - 1); 
+		if potential_start_page >= *c.pages.start() && potential_end_page <= *c.pages.end() {
+			// Here: chunk `c` was big enough and did contain the requested address.
+			// If it's not allocated, we can use it. 
+			if c.allocated {
+				if desired_start_page.is_some() {
+					error!("Page allocator: requested {}-page allocation at address {:?}, but address was already allocated.",
+						num_pages, requested_vaddr
+					);
+					return Err("requested address already allocated");
+				} else {
+					continue;
+				}
+			}
+			// Here: we've found a suitable chunk, so fall through to the rest of the loop.
+		} else {
+			// Chunk `c` isn't big enough, or doesn't contain the requested address.
+			continue;
+		}
+		
+		// If this chunk is exactly the right size, just update it in-place as 'allocated' and return that chunk.
+		if num_pages == c.pages.size_in_pages() {
+			c.allocated = true;
+			return Ok((
+				c.as_allocated_pages(),
+				DeferredAllocAction::new(None, None, None),
+			));
+		}
+
+		// The new allocated chunk might start in the middle of an existing chunk,
+		// so we need to break up that existing chunk into 3 possible chunks: before, newly-allocated, and after.
+		let new_allocation = PageRange::new(potential_start_page, potential_end_page);
+		let before = PageRange::new(*c.pages.start(), *new_allocation.start() - 1);
+		let after = PageRange::new(*new_allocation.end() + 1, *c.pages.end());
+
+		// Adjust the current chunk in place here, such that it now holds the smaller of the two free chunks;
+		// the larger free chunk will be inserted into the front of the list later -- see the drop handler
+		// of the `DeferredAllocAction` struct for more details.
+		// However, if either chunk is zero-sized, we use the other one here.
+		// At this point, both cannot be zero-sized due to the exact-sized chunk condition above.
+		let extra_free_pages: PageRange; 
+		if before.size_in_pages() > 0 && 
+			(after.size_in_pages() == 0 || before.size_in_pages() < after.size_in_pages())
+		{
+			c.pages = before;
+			extra_free_pages = after;
+		} else {
+			c.pages = after;
+			extra_free_pages = before;
+		}
+
+		let allocated_chunk = Chunk {
+			allocated: true,
+			pages: new_allocation,
+		};
+		let extra_free_chunk = Chunk {
+			allocated: false,
+			pages: extra_free_pages,
+		};
+		return Ok((
+			allocated_chunk.as_allocated_pages(),
+			DeferredAllocAction::new(allocated_chunk, extra_free_chunk, None),
+		));
+	}
+
+	error!("PageAllocator: out of virtual address space, or requested address {:?} ({} pages) was not covered by page allocator.",
+		requested_vaddr, num_pages
+	);
+	Err("out of virtual address space, or requested virtual address not covered by page allocator.")
+}
+
 
 /// Similar to [`allocated_pages_deferred()`](fn.allocate_pages_deferred.html),
 /// but accepts a size value for the allocated pages in number of bytes instead of number of pages. 
@@ -478,6 +568,20 @@ pub fn allocate_pages_by_bytes_deferred(
 	};
 	let num_pages = (actual_num_bytes + PAGE_SIZE - 1) / PAGE_SIZE; // round up
 	allocate_pages_deferred(requested_vaddr, num_pages)
+}
+
+pub fn allocate_huge_pages_by_bytes_deferred(
+	requested_vaddr: Option<VirtualAddress>,
+	num_bytes: usize,
+	page_size: HugePageSize
+) -> Result<(AllocatedPages, DeferredAllocAction<'static>), &'static str> {
+	let actual_num_bytes = if let Some(vaddr) = requested_vaddr {
+		num_bytes + (vaddr.value() % (page_size))
+	} else {
+		num_bytes
+	};
+	let num_pages = (actual_num_bytes + page_size - 1) / PAGE_SIZE; // round up
+	allocate_huge_pages_deferred(requested_vaddr, num_pages)
 }
 
 
@@ -512,6 +616,11 @@ pub fn allocate_pages_by_bytes_at(vaddr: VirtualAddress, num_bytes: usize) -> Re
 		.map(|(ap, _action)| ap)
 }
 
+pub fn allocate_huge_pages_by_bytes(num_bytes: usize, page_size : HugePageSize) -> Option<AllocatedPages> {
+	allocate_pages_by_bytes_deferred(None, num_bytes)
+		.map(|(ap, _action)| ap)
+		.ok()
+}
 
 /// Allocates the given number of pages starting at (inclusive of) the page containing the given `VirtualAddress`.
 /// 

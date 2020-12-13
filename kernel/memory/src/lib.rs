@@ -148,6 +148,21 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
     kernel_mmi.page_table.map_allocated_pages(allocated_pages, flags, frame_allocator.deref_mut())
 }
 
+pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedPages, &'static str> {
+    // TODO : Currently return allocated pages in normal size. Should return in huge page size
+    let allocated_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("memory::create_mapping(): couldn't allocate pages!")?;
+
+    let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_contiguous_mapping(): KERNEL_MMI was not yet initialized!")?;
+    let mut kernel_mmi = kernel_mmi_ref.lock();
+
+    let mut frame_allocator = FRAME_ALLOCATOR.try()
+        .ok_or("create_contiguous_mapping(): couldnt get FRAME_ALLOCATOR")?
+        .lock();
+
+    // TODO : Should accept huge pages instead of normal pages
+    kernel_mmi.page_table.map_allocated_huge_pages(allocated_pages, flags, frame_allocator.deref_mut())
+}
+
 
 pub static BROADCAST_TLB_SHOOTDOWN_FUNC: Once<fn(PageRange)> = Once::new();
 
