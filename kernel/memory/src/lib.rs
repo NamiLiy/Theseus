@@ -150,7 +150,7 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
 
 pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedPages, &'static str> {
     // SovledQ : Currently return allocated pages in normal size. Should return in huge page size
-    let allocated_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("memory::create_mapping(): couldn't allocate pages!")?;
+    let allocated_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("memory::create_huge_mapping(): couldn't allocate pages!")?;
 
     let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_contiguous_mapping(): KERNEL_MMI was not yet initialized!")?;
     let mut kernel_mmi = kernel_mmi_ref.lock();

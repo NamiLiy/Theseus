@@ -474,7 +474,8 @@ pub fn allocate_huge_pages_deferred(
 	}
 
 	//TODO : do we need to modify the map func here ?
-	let desired_start_page = requested_vaddr.map(|vaddr| Page::containing_hugepage_address(vaddr, page_size));
+	let desired_start_page = requested_vaddr.map(|vaddr| HugePage::containing_
+		_address(vaddr, page_size));
 
 	//TODO : do we need a new free list ?
 	let mut locked_list = FREE_PAGE_LIST.lock();

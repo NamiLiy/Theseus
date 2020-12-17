@@ -272,6 +272,10 @@ impl HugePageSize {
         Ok(HugePageSize(page_size_in_mb*1024))
     }
 
+    pub fn huge_page_ratio(&self) -> usize {
+        self.0 / page_size
+    }
+
     //Page1GB: 1-GByte pages.If CPUID.80000001H:EDX.Page1GB [bit 26] = 1, 1-GByte pages are supported with IA-32e paging (see Section 4.5)
 
     
@@ -573,8 +577,6 @@ unsafe impl Step for Page {
     }
 }
 
-
-
 /// An inclusive range of `Page`s that are contiguous in virtual memory.
 #[derive(Clone)]
 pub struct PageRange(RangeInclusive<Page>);
@@ -707,4 +709,214 @@ pub struct AggregatedSectionMemoryBounds {
    pub rodata: SectionMemoryBounds,
    pub data:   SectionMemoryBounds,
    pub stack:  SectionMemoryBounds,
+}
+
+/// A virtual memory page, which contains the index of the page
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HugePage {
+    number: usize,
+    page_size: HugePageSize
+}
+impl fmt::Debug for HugePage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Page(v{:#X})", self.start_address())
+    }
+}
+
+impl HugePage {
+    /// Returns the `Page` that contains the given `VirtualAddress`.
+    pub const fn containing_address(virt_addr: VirtualAddress) -> Page {
+        HugePage {
+            number: virt_addr.value() / page_size
+        }
+    }
+
+    /// Returns the `VirtualAddress` as the start of this `Page`.
+    pub const fn start_address(&self) -> VirtualAddress {
+        // Cannot create VirtualAddress directly because the field is private
+        VirtualAddress::new_canonical(self.number * page_size)
+    }
+
+
+
+    /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
+    pub fn p4_index(&self) -> usize {
+        (self.number*huge_page_ratio >> 27) & 0x1FF
+    }
+
+    /// Returns the 9-bit part of this page's virtual address that is the index into the P3 page table entries list.
+    pub fn p3_index(&self) -> usize {
+        (self.number*huge_page_ratio >> 18) & 0x1FF
+    }
+
+    /// Returns the 9-bit part of this page's virtual address that is the index into the P2 page table entries list.
+    pub fn p2_index(&self) -> usize {
+        (self.number*huge_page_ratio >> 9) & 0x1FF
+    }
+
+    /// Returns the 9-bit part of this page's virtual address that is the index into the P2 page table entries list.
+    /// Using this returned `usize` value as an index into the P1 entries list will give you the final PTE,
+    /// from which you can extract the mapped `Frame` (or its physical address) using `pointed_frame()`.
+    pub fn p1_index(&self) -> usize {
+        (self.number*huge_page_ratio >> 0) & 0x1FF
+    }
+}
+
+impl Add<usize> for Huge {
+    type Output = HugePage;
+
+    fn add(self, rhs: usize) -> Page {
+        // cannot exceed max page number
+        HugePage {
+            number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+        }
+    }
+}
+
+impl AddAssign<usize> for HugePage {
+    fn add_assign(&mut self, rhs: usize) {
+        *self = HugePage {
+            number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+        };
+    }
+}
+
+impl Sub<usize> for HugePage {
+    type Output = HugePage;
+
+    fn sub(self, rhs: usize) -> Page {
+        HugePage {
+            number: self.number.saturating_sub(rhs),
+        }
+    }
+}
+
+impl SubAssign<usize> for HugePage {
+    fn sub_assign(&mut self, rhs: usize) {
+        *self = HugePage {
+            number: self.number.saturating_sub(rhs),
+        };
+    }
+}
+
+// Implementing these functions allow `Page` to be in an `Iterator`.
+unsafe impl Step for HugePage {
+    #[inline]
+    fn steps_between(start: &Page, end: &Page) -> Option<usize> {
+        Step::steps_between((&start.number), (&end.number))
+    }
+    #[inline]
+    fn forward_checked(start: Page, count: usize) -> Option<Page> {
+        Step::forward_checked(start.number, count).map(|n| Page { number: n })
+    }
+    #[inline]
+    fn backward_checked(start: Page, count: usize) -> Option<Page> {
+        Step::backward_checked(start.number, count).map(|n| Page { number: n })
+    }
+}
+
+/// An inclusive range of `Page`s that are contiguous in virtual memory.
+#[derive(Clone)]
+pub struct HugePageRange(RangeInclusive<HugePage>);
+
+impl HugePageRange {
+    /// Creates a new range of `Page`s that spans from `start` to `end`,
+    /// both inclusive bounds.
+    pub const fn new(start: HugePage, end: HugePage) -> HugePageRange {
+        HugePageRange(RangeInclusive::new(start, end))
+    }
+
+    /// Creates a PageRange that will always yield `None`.
+    pub const fn empty() -> HugePageRange {
+        HugePageRange::new(HugePage { number: 1 }, Page { number: 0 })
+    }
+
+    /// A convenience method for creating a new `PageRange`
+    /// that spans all `Page`s from the given virtual address
+    /// to an end bound based on the given size.
+    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize) -> HugePageRange {
+        assert!(size_in_bytes > 0);
+        let start_page = HugePage::containing_address(starting_virt_addr);
+		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
+        let end_page = HugePage::containing_address(starting_virt_addr + (size_in_bytes - 1));
+        HugePageRange::new(start_page, end_page)
+    }
+
+    /// Returns the `VirtualAddress` of the starting `Page`.
+    pub const fn start_address(&self) -> VirtualAddress {
+        self.0.start().start_address()
+    }
+
+    /// Returns the size in number of `Page`s.
+    /// Use this instead of the Iterator trait's `count()` method.
+    /// This is instant, because it doesn't need to iterate over each `Page`, unlike normal iterators.
+    pub const fn size_in_pages(&self) -> usize {
+        // add 1 because it's an inclusive range
+        self.0.end().number + 1 - self.0.start().number
+    }
+
+    /// Returns the size in number of bytes.
+    pub const fn size_in_bytes(&self) -> usize {
+        self.size_in_pages() * page_size
+    }
+
+    /// Whether this `PageRange` contains the given `VirtualAddress`.
+    pub fn contains_virt_addr(&self, virt_addr: VirtualAddress) -> bool {
+        self.0.contains(&Page::containing_address(virt_addr))
+    }
+
+    /// Returns the offset of the given `VirtualAddress` within this `PageRange`,
+    /// i.e., the difference between `virt_addr` and `self.start_address()`.
+    /// If the given `VirtualAddress` is not covered by this range of `Page`s, this returns `None`.
+    ///  
+    /// # Examples
+    /// If the page range covered addresses `0x2000` to `0x4000`, then calling
+    /// `offset_of_address(0x3500)` would return `Some(0x1500)`.
+    pub fn offset_of_address(&self, virt_addr: VirtualAddress) -> Option<usize> {
+        if self.contains_virt_addr(virt_addr) {
+            Some(virt_addr.value() - self.start_address().value())
+        } else {
+            None
+        }
+    }
+
+    /// Returns the `VirtualAddress` at the given `offset` into this mapping,  
+    /// If the given `offset` is not covered by this range of `Page`s, this returns `None`.
+    ///  
+    /// # Examples
+    /// If the page range covered addresses `0xFFFFFFFF80002000` to `0xFFFFFFFF80004000`,
+    /// then calling `address_at_offset(0x1500)` would return `Some(0xFFFFFFFF80003500)`.
+    pub fn address_at_offset(&self, offset: usize) -> Option<VirtualAddress> {
+        if offset <= self.size_in_bytes() {
+            Some(self.start_address() + offset)
+        }
+        else {
+            None
+        }
+    }
+}
+impl fmt::Debug for HugePageRange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{:?}", self.0)
+	}
+}
+impl Deref for HugePageRange {
+    type Target = RangeInclusive<HugePage>;
+    fn deref(&self) -> &RangeInclusive<HugePage> {
+        &self.0
+    }
+}
+impl DerefMut for HugePageRange {
+    fn deref_mut(&mut self) -> &mut RangeInclusive<HugePage> {
+        &mut self.0
+    }
+}
+
+impl IntoIterator for HugePageRange {
+    type Item = HugePage;
+    type IntoIter = RangeInclusive<HugePage>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0
+    }
 }
