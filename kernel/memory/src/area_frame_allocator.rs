@@ -210,7 +210,7 @@ impl AreaFrameAllocator {
         // If we actually skipped an occupied area, then we need to rerun this again,
         // to ensure that we didn't skip into another occupied area.
         if rerun {
-            self.skip_occupied_frames(page_size);
+            self.skip_occupied_hugepage_frames(page_size);
         }
     }
 }

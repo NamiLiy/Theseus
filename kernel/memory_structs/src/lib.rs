@@ -77,7 +77,6 @@ impl VirtualAddress {
         self.0 & (PAGE_SIZE - 1)
     }
 
-    //TODO: pass a pagesize parameter into it
     pub const fn hugepage_offset(&self, page_size : HugePageSize) -> usize {
         self.0 & (pagesize - 1)
     }
@@ -180,6 +179,10 @@ impl PhysicalAddress {
     pub fn frame_offset(&self) -> usize {
         self.0 & (PAGE_SIZE - 1)
     }
+
+    pub fn hugepage_frame_offset(&self, page_size : HugePageSize) -> usize {
+        self.0 & (page_size - 1)
+    }
 }
 impl fmt::Debug for PhysicalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -266,7 +269,7 @@ impl HugePageSize {
     /// i.e., bits (64:48] are sign-extended from bit 47.
     pub fn new(page_size_in_mb: usize) -> Result<HugePageSize, &'static str> {
         // TODO Check whether the huge pagesize is valid on the architecture
-        Ok(HugePageSize(page_size_in_mb*1024*1024))
+        Ok(HugePageSize(page_size_in_mb*1024))
     }
 
     //Page1GB: 1-GByte pages.If CPUID.80000001H:EDX.Page1GB [bit 26] = 1, 1-GByte pages are supported with IA-32e paging (see Section 4.5)
@@ -485,6 +488,11 @@ impl Page {
 
     /// Returns the `VirtualAddress` as the start of this `Page`.
     pub const fn start_address(&self) -> VirtualAddress {
+        // Cannot create VirtualAddress directly because the field is private
+        VirtualAddress::new_canonical(self.number * PAGE_SIZE)
+    }
+
+    pub const fn hugepage_start_address(&self) -> VirtualAddress {
         // Cannot create VirtualAddress directly because the field is private
         VirtualAddress::new_canonical(self.number * PAGE_SIZE)
     }
