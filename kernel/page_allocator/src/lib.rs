@@ -466,14 +466,17 @@ pub fn allocate_pages_deferred(
 pub fn allocate_huge_pages_deferred(
 	requested_vaddr: Option<VirtualAddress>,
 	num_pages: usize,
+	page_size : HugePageSize
 ) -> Result<(AllocatedPages, DeferredAllocAction<'static>), &'static str> {
 	if num_pages == 0 {
 		warn!("PageAllocator: requested an allocation of 0 pages... stupid!");
 		return Err("cannot allocate zero pages");
 	}
 
-	let desired_start_page = requested_vaddr.map(|vaddr| Page::containing_address(vaddr));
+	//TODO : do we need to modify the map func here ?
+	let desired_start_page = requested_vaddr.map(|vaddr| Page::containing_hugepage_address(vaddr, HugePageSize));
 
+	//TODO : do we need a new free list ?
 	let mut locked_list = FREE_PAGE_LIST.lock();
 	for c in locked_list.iter_mut() {
 		// Look for the chunk that contains the desired address, 
@@ -580,8 +583,8 @@ pub fn allocate_huge_pages_by_bytes_deferred(
 	} else {
 		num_bytes
 	};
-	let num_pages = (actual_num_bytes + page_size - 1) / PAGE_SIZE; // round up
-	allocate_huge_pages_deferred(requested_vaddr, num_pages)
+	let num_pages = (actual_num_bytes + page_size - 1) / page_size; // round up
+	allocate_huge_pages_deferred(requested_vaddr, num_pages, page_size)
 }
 
 
@@ -617,7 +620,7 @@ pub fn allocate_pages_by_bytes_at(vaddr: VirtualAddress, num_bytes: usize) -> Re
 }
 
 pub fn allocate_huge_pages_by_bytes(num_bytes: usize, page_size : HugePageSize) -> Option<AllocatedPages> {
-	allocate_pages_by_bytes_deferred(None, num_bytes)
+	allocate_huge_pages_by_bytes_deferred(None, num_bytes, page_size)
 		.map(|(ap, _action)| ap)
 		.ok()
 }

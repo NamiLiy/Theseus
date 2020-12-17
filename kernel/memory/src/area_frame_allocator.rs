@@ -177,6 +177,42 @@ impl AreaFrameAllocator {
             self.skip_occupied_frames();
         }
     }
+
+    fn skip_occupied_hugepage_frames(&mut self, page_size: HugePageSize) {
+        let mut rerun = false;
+        match self.occupied {
+            VectorArray::Array((len, ref arr)) => {
+                for area in arr.iter().take(len) {
+                    let start = Frame::containing_huagepage_address(area.base_addr, page_size);
+                    let end = Frame::containing_huagepage_address(area.base_addr + area.size_in_bytes, page_size);
+                    if self.next_free_frame >= start && self.next_free_frame <= end {
+                        self.next_free_frame = end + 1; 
+                        trace!("AreaFrameAllocator: skipping occupied area to next frame {:?}", self.next_free_frame);
+                        rerun = true;
+                        break;
+                    }
+                }
+            }
+            VectorArray::Vector(ref v) => {
+                for area in v.iter() {
+                    let start = Frame::containing_huagepage_address(area.base_addr, page_size);
+                    let end = Frame::containing_huagepage_address(area.base_addr + area.size_in_bytes, page_size);
+                    if self.next_free_frame >= start && self.next_free_frame <= end {
+                        self.next_free_frame = end + 1; 
+                        trace!("AreaFrameAllocator: skipping occupied area to next frame {:?}", self.next_free_frame);
+                        rerun = true;
+                        break;
+                    }
+                }
+            }
+        };
+        
+        // If we actually skipped an occupied area, then we need to rerun this again,
+        // to ensure that we didn't skip into another occupied area.
+        if rerun {
+            self.skip_occupied_frames(page_size);
+        }
+    }
 }
 
 impl FrameAllocator for AreaFrameAllocator {
@@ -245,6 +281,38 @@ impl FrameAllocator for AreaFrameAllocator {
             }
             // `frame` was not valid, try it again with the updated `next_free_frame`
             self.allocate_frame()
+        } else {
+            error!("FATAL ERROR: AreaFrameAllocator: out of physical memory!!!");
+            None // no free frames left
+        }
+    }
+
+    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<Frame> {
+        if let Some(area) = self.current_area {
+            // first, see if we need to skip beyond the current area (it may be already occupied)
+            self.skip_occupied_hugepage_frames(page_size);
+
+            // "clone" the frame to return it if it's free. Frame doesn't
+            // implement Clone, but we can construct an identical frame.
+            let frame = Frame { number: self.next_free_frame.number };
+
+            // the last frame of the current area
+            let last_frame_in_current_area = {
+                let address = area.base_addr + area.size_in_bytes - 1;
+                Frame::containing_hugepage_address(address, page_size: HugePageSize)
+            };
+
+            if frame > last_frame_in_current_area {
+                // all frames of current area are used, switch to next area
+                self.select_next_area();
+            } else {
+                // frame is unused, increment `next_free_frame` and return it
+                self.next_free_frame += 1;
+                // trace!("AreaFrameAllocator: allocated frame {:?}", frame);
+                return Some(frame);
+            }
+            // `frame` was not valid, try it again with the updated `next_free_frame`
+            self.allocate_frame(page_size)
         } else {
             error!("FATAL ERROR: AreaFrameAllocator: out of physical memory!!!");
             None // no free frames left

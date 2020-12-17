@@ -76,6 +76,11 @@ impl VirtualAddress {
     pub const fn page_offset(&self) -> usize {
         self.0 & (PAGE_SIZE - 1)
     }
+
+    //TODO: pass a pagesize parameter into it
+    pub const fn hugepage_offset(&self, page_size : HugePageSize) -> usize {
+        self.0 & (pagesize - 1)
+    }
 }
 impl fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -289,9 +294,19 @@ impl Frame {
         }
     }
 
+    pub fn containing_huagepage_address(phys_addr: PhysicalAddress, page_size : HugePageSize) -> Frame {
+        Frame {
+            number: phys_addr.value() / page_size,
+        }
+    }
+
     /// Returns the `PhysicalAddress` at the start of this `Frame`.
     pub fn start_address(&self) -> PhysicalAddress {
         PhysicalAddress::new_canonical(self.number * PAGE_SIZE)
+    }
+
+    pub fn huagepage_start_address(&self, page_size : HugePageSize) -> PhysicalAddress {
+        PhysicalAddress::new_canonical(self.number * page_size)
     }
 }
 
@@ -459,6 +474,12 @@ impl Page {
     pub const fn containing_address(virt_addr: VirtualAddress) -> Page {
         Page {
             number: virt_addr.value() / PAGE_SIZE,
+        }
+    }
+
+    pub const fn containing_hugepage_address(virt_addr: VirtualAddress, page_size : HugePageSize) -> Page {
+        Page {
+            number: virt_addr.value() / page_size,
         }
     }
 
