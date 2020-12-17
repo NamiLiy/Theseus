@@ -725,7 +725,7 @@ impl fmt::Debug for HugePage {
 
 impl HugePage {
     /// Returns the `Page` that contains the given `VirtualAddress`.
-    pub const fn containing_address(virt_addr: VirtualAddress) -> Page {
+    pub const fn containing_address(virt_addr: VirtualAddress) -> HugePage {
         HugePage {
             number: virt_addr.value() / page_size
         }
@@ -737,7 +737,13 @@ impl HugePage {
         VirtualAddress::new_canonical(self.number * page_size)
     }
 
+    pub fn corresponding_normal_page(&self) -> Page {
+        (self.number)*self.page_size*page_ratio()
+    }
 
+    pub fn from_normal_page(page : Page) -> HugePage {
+        HughPage::containing_address(page.start_address())
+    }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
     pub fn p4_index(&self) -> usize {
@@ -827,23 +833,23 @@ impl HugePageRange {
     }
 
     /// Creates a PageRange that will always yield `None`.
-    pub const fn empty() -> HugePageRange {
-        HugePageRange::new(HugePage { number: 1 }, Page { number: 0 })
+    pub const fn empty(page_size : HugePageSize) -> HugePageRange {
+        HugePageRange::new(HugePage { number: 1, page_size: page_size}, HugePage { number: 0, page_size: page_size })
     }
 
     /// A convenience method for creating a new `PageRange`
     /// that spans all `Page`s from the given virtual address
     /// to an end bound based on the given size.
-    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize) -> HugePageRange {
+    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: HugePageSize) -> HugePageRange {
         assert!(size_in_bytes > 0);
-        let start_page = HugePage::containing_address(starting_virt_addr);
+        let start_page = HugePage::containing_address(starting_virt_addr, page_size);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
-        let end_page = HugePage::containing_address(starting_virt_addr + (size_in_bytes - 1));
+        let end_page = HugePage::containing_address(starting_virt_addr + (size_in_bytes - 1), page_size);
         HugePageRange::new(start_page, end_page)
     }
 
     /// Returns the `VirtualAddress` of the starting `Page`.
-    pub const fn start_address(&self) -> VirtualAddress {
+    pub const fn (&self) -> VirtualAddress {
         self.0.start().start_address()
     }
 

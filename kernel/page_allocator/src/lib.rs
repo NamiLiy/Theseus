@@ -84,6 +84,10 @@ impl Chunk {
 		}
 	}
 
+	fn as_allocated_huge_pages(&self, page_size:HugePageSize) -> AllocatedHugePages {
+		AllocatedHugePages::from_normal_pages(self.pages.clone(), HugePageSize)
+	}
+
 	/// Returns a new `Chunk` with an empty range of pages. 
 	fn empty() -> Chunk {
 		Chunk {
@@ -168,6 +172,87 @@ impl AllocatedPages {
 			Some((
 				AllocatedPages { pages: first }, 
 				AllocatedPages { pages: second },
+			))
+		} else {
+			None
+		}
+	}
+}
+
+/// Represents a range of allocated `VirtualAddress`es, specified in `Page`s. 
+/// 
+/// These pages are not initially mapped to any physical memory frames, you must do that separately
+/// in order to actually use their memory; see the `MappedPages` type for more. 
+/// 
+/// This object represents ownership of the allocated virtual pages;
+/// if this object falls out of scope, its allocated pages will be auto-deallocated upon drop. 
+/// 
+/// TODO: implement proper deallocation for `AllocatedPages` upon drop.
+pub struct AllocatedHugePages {
+	pages: HugePageRange,
+}
+impl Deref for AllocatedHugePages {
+    type Target = HugePageRange;
+    fn deref(&self) -> &HugePageRange {
+        &self.pages
+    }
+}
+impl fmt::Debug for AllocatedHugePages {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "AllocatedPages({:?})", self.pages)
+	}
+}
+
+impl AllocatedHugePages {
+	/// Returns an empty AllocatedPages object that performs no page allocation. 
+    /// Can be used as a placeholder, but will not permit any real usage. 
+    pub const fn empty() -> AllocatedHugePages {
+        AllocatedHugePages {
+			pages: HugePageRange::empty()
+		}
+	}
+
+	pub fn from_normal_pages(pages: PageRange, page_size, HugePageSize) -> AllocatedHugePages {
+		let huge_page_range = HugePageRange::from_virt_addr(pages.start_address(),pages.size_in_bytes(),page_size);
+		AllocatedHugePages {
+			pages: huge_page_range.clone()
+		}
+	}
+
+	/// Merges the given `AllocatedPages` object `ap` into this `AllocatedPages` object (`self`).
+	/// This is just for convenience and usability purposes, it performs no allocation or remapping.
+    ///
+	/// The `ap` must be virtually contiguous and come immediately after `self`,
+	/// that is, `self.end` must equal `ap.start`. 
+	/// If this condition is met, `self` is modified and `Ok(())` is returned,
+	/// otherwise `Err(ap)` is returned.
+	pub fn merge(&mut self, ap: AllocatedHugePages) -> Result<(), AllocatedHugePages> {
+		// make sure the pages are contiguous
+		if *ap.start() != (*self.end() + 1) {
+			return Err(ap);
+		}
+		self.pages = HugePageRange::new(*self.start(), *ap.end());
+		// ensure the now-merged AllocatedPages doesn't run its drop handler and free its pages.
+		core::mem::forget(ap); 
+		Ok(())
+	}
+
+	/// Splits this `AllocatedPages` into two separate `AllocatedPages` objects:
+	/// * `[beginning : at_page - 1]`
+	/// * `[at_page : end]`
+	/// 
+	/// Depending on the size of this `AllocatedPages`, either one of the 
+	/// returned `AllocatedPages` objects may be empty. 
+	/// 
+	/// Returns `None` if `at_page` is not within the bounds of this `AllocatedPages`.
+	pub fn split(self, at_page: HugePage) -> Option<(AllocatedHugePages, AllocatedHugePages)> {
+		let end_of_first = at_page - 1;
+		if at_page > *self.pages.start() && end_of_first <= *self.pages.end() {
+			let first  = PageRange::new(*self.pages.start(), end_of_first);
+			let second = PageRange::new(at_page, *self.pages.end());
+			Some((
+				AllocatedHugePages { pages: first }, 
+				AllocatedHugePages { pages: second },
 			))
 		} else {
 			None
@@ -473,19 +558,20 @@ pub fn allocate_huge_pages_deferred(
 		return Err("cannot allocate zero pages");
 	}
 
-	//TODO : do we need to modify the map func here ?
-	let desired_start_page = requested_vaddr.map(|vaddr| HugePage::containing_
-		_address(vaddr, page_size));
+	// We get the equivalent normal page number considering alignment
+	let desired_start_page = requested_vaddr.map(|vaddr| HugePage::containing_address(vaddr, page_size).corresponding_normal_page());
 
 	//TODO : do we need a new free list ?
 	let mut locked_list = FREE_PAGE_LIST.lock();
 	for c in locked_list.iter_mut() {
 		// Look for the chunk that contains the desired address, 
 		// or any chunk that is large enough, if no desired address was requested.
-		// Obviously, we cannot use any chunk that is already allocated. 
-		let potential_start_page = desired_start_page.unwrap_or(*c.pages.start());
+		// Obviously, we cannot use any chunk that is already allocated.
+		let potential_start_page_of_chunk =  HugePage::containing_address(*c.pages.start() + page_size.page_ratio() - 1, page_size).corresponding_normal_page();
+
+		let potential_start_page = desired_start_page.unwrap_or(potential_start_page_of_chunk);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
-		let potential_end_page   = potential_start_page + (num_pages - 1); 
+		let potential_end_page   = potential_start_page + (num_pages*page_size.page_ratio() - 1); 
 		if potential_start_page >= *c.pages.start() && potential_end_page <= *c.pages.end() {
 			// Here: chunk `c` was big enough and did contain the requested address.
 			// If it's not allocated, we can use it. 
@@ -509,7 +595,7 @@ pub fn allocate_huge_pages_deferred(
 		if num_pages == c.pages.size_in_pages() {
 			c.allocated = true;
 			return Ok((
-				c.as_allocated_pages(),
+				c.as_allocated_huge_pages(),
 				DeferredAllocAction::new(None, None, None),
 			));
 		}
@@ -545,7 +631,7 @@ pub fn allocate_huge_pages_deferred(
 			pages: extra_free_pages,
 		};
 		return Ok((
-			allocated_chunk.as_allocated_pages(),
+			allocated_chunk.as_allocated_huge_pages(),
 			DeferredAllocAction::new(allocated_chunk, extra_free_chunk, None),
 		));
 	}
