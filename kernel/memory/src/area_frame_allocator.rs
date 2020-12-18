@@ -10,6 +10,7 @@
 use super::{Frame, FrameAllocator, FrameRange, PhysicalAddress, PhysicalMemoryArea};
 use alloc::vec::Vec;
 use kernel_config::memory::PAGE_SIZE;
+pub use memory_structs::*;
 
 
 /// A stand-in for a Union
@@ -288,14 +289,14 @@ impl FrameAllocator for AreaFrameAllocator {
     }
 
     fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> {
-        let num_frames = page_size.page_ratio();
+        let num_frames = page_size.huge_page_ratio();
 
         // this is just another shitty way to get contiguous frames
         // it wastes the frames that are allocated 
 
         if let Some(first_frame) = self.allocate_frame() {
             let first_frame_paddr = first_frame.start_address();
-            if first_frame_paddr % (page_size.page_size.value() != 0 {
+            if first_frame_paddr.value() % page_size.value() != 0 {
                 warn!("AreaFrameAllocator::allocate_hugepage_frame(): initial frame at {} wasted, trying again!", first_frame_paddr);
                 return self.allocate_hugepage_frame(page_size);
             }

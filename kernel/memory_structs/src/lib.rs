@@ -78,7 +78,7 @@ impl VirtualAddress {
     }
 
     pub const fn hugepage_offset(&self, page_size : HugePageSize) -> usize {
-        self.0 & (pagesize - 1)
+        self.0 & (page_size.value() - 1)
     }
 }
 impl fmt::Debug for VirtualAddress {
@@ -181,7 +181,7 @@ impl PhysicalAddress {
     }
 
     pub fn hugepage_frame_offset(&self, page_size : HugePageSize) -> usize {
-        self.0 & (page_size - 1)
+        self.0 & (page_size.value() - 1)
     }
 }
 impl fmt::Debug for PhysicalAddress {
@@ -261,24 +261,34 @@ impl PhysicalMemoryArea {
     }
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct HugePageSize(usize);
 
 impl HugePageSize {
     /// Creates a new `VirtualAddress`,
     /// checking that the address is canonical,
     /// i.e., bits (64:48] are sign-extended from bit 47.
-    pub fn new(page_size_in_mb: usize) -> Result<HugePageSize, &'static str> {
+    pub fn new(page_size_in_bytes: usize) -> Result<HugePageSize, &'static str> {
         // TODO Check whether the huge pagesize is valid on the architecture
-        Ok(HugePageSize(page_size_in_mb*1024))
+        Ok(HugePageSize(page_size_in_bytes))
     }
 
     pub fn huge_page_ratio(&self) -> usize {
-        self.0 / page_size
+        self.0 / PAGE_SIZE
+    }
+
+    #[inline]
+    pub const fn value(&self) -> usize {
+        self.0
     }
 
     //Page1GB: 1-GByte pages.If CPUID.80000001H:EDX.Page1GB [bit 26] = 1, 1-GByte pages are supported with IA-32e paging (see Section 4.5)
 
     
+}
+
+impl Default for HugePageSize {
+    fn default() -> Self { HugePageSize(PAGE_SIZE) }
 }
 
 /// A `Frame` is a chunk of **physical** memory,
@@ -303,7 +313,7 @@ impl Frame {
 
     pub fn containing_huagepage_address(phys_addr: PhysicalAddress, page_size : HugePageSize) -> Frame {
         Frame {
-            number: phys_addr.value() / page_size,
+            number: phys_addr.value() / page_size.value(),
         }
     }
 
@@ -313,7 +323,7 @@ impl Frame {
     }
 
     pub fn huagepage_start_address(&self, page_size : HugePageSize) -> PhysicalAddress {
-        PhysicalAddress::new_canonical(self.number * page_size)
+        PhysicalAddress::new_canonical(self.number * page_size.value())
     }
 }
 
@@ -403,8 +413,9 @@ impl FrameRange {
         self.0.start().start_address()
     }
 
+
     pub fn start_frame(&self) -> Frame {
-        self.0.start()
+        Frame::containing_address(self.start_address())
     }
 
     /// Returns the number of `Frame`s covered by this iterator.
@@ -490,7 +501,7 @@ impl Page {
 
     pub const fn containing_hugepage_address(virt_addr: VirtualAddress, page_size : HugePageSize) -> Page {
         Page {
-            number: virt_addr.value() / page_size,
+            number: virt_addr.value() / page_size.value(),
         }
     }
 
@@ -729,56 +740,62 @@ impl fmt::Debug for HugePage {
 
 impl HugePage {
     /// Returns the `Page` that contains the given `VirtualAddress`.
-    pub const fn containing_address(virt_addr: VirtualAddress) -> HugePage {
+    pub const fn containing_address(virt_addr: VirtualAddress, page_size : HugePageSize) -> HugePage {
         HugePage {
-            number: virt_addr.value() / page_size
+            number: virt_addr.value() / page_size.value(),
+            page_size: page_size
         }
     }
 
     /// Returns the `VirtualAddress` as the start of this `Page`.
     pub const fn start_address(&self) -> VirtualAddress {
         // Cannot create VirtualAddress directly because the field is private
-        VirtualAddress::new_canonical(self.number * page_size)
+        VirtualAddress::new_canonical(self.number * self.page_size.value())
     }
 
     pub fn corresponding_normal_page(&self) -> Page {
-        (self.number)*self.page_size*page_ratio()
+        Page::containing_address(self.start_address())
     }
 
-    pub fn from_normal_page(page : Page) -> HugePage {
-        HughPage::containing_address(page.start_address())
+    pub fn from_normal_page(page : Page, page_size: HugePageSize) -> HugePage {
+        HugePage::containing_address(page.start_address(), page_size)
     }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
     pub fn p4_index(&self) -> usize {
-        (self.number*huge_page_ratio >> 27) & 0x1FF
+        (self.number*self.page_size.huge_page_ratio() >> 27) & 0x1FF
     }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P3 page table entries list.
     pub fn p3_index(&self) -> usize {
-        (self.number*huge_page_ratio >> 18) & 0x1FF
+        (self.number*self.page_size.huge_page_ratio() >> 18) & 0x1FF
     }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P2 page table entries list.
     pub fn p2_index(&self) -> usize {
-        (self.number*huge_page_ratio >> 9) & 0x1FF
+        (self.number*self.page_size.huge_page_ratio() >> 9) & 0x1FF
     }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P2 page table entries list.
     /// Using this returned `usize` value as an index into the P1 entries list will give you the final PTE,
     /// from which you can extract the mapped `Frame` (or its physical address) using `pointed_frame()`.
     pub fn p1_index(&self) -> usize {
-        (self.number*huge_page_ratio >> 0) & 0x1FF
+        (self.number*self.page_size.huge_page_ratio() >> 0) & 0x1FF
+    }
+
+    pub fn page_size(&self) -> HugePageSize {
+        self.page_size
     }
 }
 
-impl Add<usize> for Huge {
+impl Add<usize> for HugePage {
     type Output = HugePage;
 
-    fn add(self, rhs: usize) -> Page {
+    fn add(self, rhs: usize) -> HugePage {
         // cannot exceed max page number
         HugePage {
             number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+            page_size: self.page_size,
         }
     }
 }
@@ -787,6 +804,7 @@ impl AddAssign<usize> for HugePage {
     fn add_assign(&mut self, rhs: usize) {
         *self = HugePage {
             number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+            page_size: self.page_size,
         };
     }
 }
@@ -794,9 +812,10 @@ impl AddAssign<usize> for HugePage {
 impl Sub<usize> for HugePage {
     type Output = HugePage;
 
-    fn sub(self, rhs: usize) -> Page {
+    fn sub(self, rhs: usize) -> HugePage {
         HugePage {
             number: self.number.saturating_sub(rhs),
+            page_size: self.page_size,
         }
     }
 }
@@ -805,6 +824,7 @@ impl SubAssign<usize> for HugePage {
     fn sub_assign(&mut self, rhs: usize) {
         *self = HugePage {
             number: self.number.saturating_sub(rhs),
+            page_size: self.page_size,
         };
     }
 }
@@ -812,16 +832,16 @@ impl SubAssign<usize> for HugePage {
 // Implementing these functions allow `Page` to be in an `Iterator`.
 unsafe impl Step for HugePage {
     #[inline]
-    fn steps_between(start: &Page, end: &Page) -> Option<usize> {
-        Step::steps_between((&start.number), (&end.number))
+    fn steps_between(start: &HugePage, end: &HugePage) -> Option<usize> {
+        Step::steps_between(&start.number, &end.number)
     }
     #[inline]
-    fn forward_checked(start: Page, count: usize) -> Option<Page> {
-        Step::forward_checked(start.number, count).map(|n| Page { number: n })
+    fn forward_checked(start: HugePage, count: usize) -> Option<HugePage> {
+        Step::forward_checked(start.number, count).map(|n| HugePage { number: n, page_size: start.page_size })
     }
     #[inline]
-    fn backward_checked(start: Page, count: usize) -> Option<Page> {
-        Step::backward_checked(start.number, count).map(|n| Page { number: n })
+    fn backward_checked(start: HugePage, count: usize) -> Option<HugePage> {
+        Step::backward_checked(start.number, count).map(|n| HugePage { number: n, page_size: start.page_size  })
     }
 }
 
@@ -853,26 +873,26 @@ impl HugePageRange {
     }
 
     /// Returns the `VirtualAddress` of the starting `Page`.
-    pub const fn (&self) -> VirtualAddress {
+    pub fn start_address(&self) -> VirtualAddress {
         self.0.start().start_address()
     }
 
     /// Returns the size in number of `Page`s.
     /// Use this instead of the Iterator trait's `count()` method.
     /// This is instant, because it doesn't need to iterate over each `Page`, unlike normal iterators.
-    pub const fn size_in_pages(&self) -> usize {
+    pub fn size_in_pages(&self) -> usize {
         // add 1 because it's an inclusive range
         self.0.end().number + 1 - self.0.start().number
     }
 
     /// Returns the size in number of bytes.
-    pub const fn size_in_bytes(&self) -> usize {
-        self.size_in_pages() * page_size
+    pub fn size_in_bytes(&self) -> usize {
+        self.size_in_pages() * self.0.start().page_size().value()
     }
 
     /// Whether this `PageRange` contains the given `VirtualAddress`.
     pub fn contains_virt_addr(&self, virt_addr: VirtualAddress) -> bool {
-        self.0.contains(&Page::containing_address(virt_addr))
+        self.0.contains(&HugePage::containing_address(virt_addr,self.page_size()))
     }
 
     pub fn page_size(&self) -> HugePageSize {

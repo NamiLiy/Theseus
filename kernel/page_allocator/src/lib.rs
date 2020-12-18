@@ -23,7 +23,7 @@ use core::{
 	ops::Deref,
 };
 use kernel_config::memory::*;
-use memory_structs::{VirtualAddress, Page, PageRange, HugePageSize};
+use memory_structs::{VirtualAddress, Page, HugePage, PageRange, HugePageRange, HugePageSize};
 use spin::Mutex;
 
 
@@ -85,7 +85,7 @@ impl Chunk {
 	}
 
 	fn as_allocated_huge_pages(&self, page_size:HugePageSize) -> AllocatedHugePages {
-		AllocatedHugePages::from_normal_pages(self.pages.clone(), HugePageSize)
+		AllocatedHugePages::from_normal_pages(self.pages.clone(), page_size)
 	}
 
 	/// Returns a new `Chunk` with an empty range of pages. 
@@ -206,13 +206,13 @@ impl fmt::Debug for AllocatedHugePages {
 impl AllocatedHugePages {
 	/// Returns an empty AllocatedPages object that performs no page allocation. 
     /// Can be used as a placeholder, but will not permit any real usage. 
-    pub const fn empty() -> AllocatedHugePages {
+    pub const fn empty(page_size: HugePageSize) -> AllocatedHugePages {
         AllocatedHugePages {
-			pages: HugePageRange::empty()
+			pages: HugePageRange::empty(page_size)
 		}
 	}
 
-	pub fn from_normal_pages(pages: PageRange, page_size, HugePageSize) -> AllocatedHugePages {
+	pub fn from_normal_pages(pages: PageRange, page_size: HugePageSize) -> AllocatedHugePages {
 		let huge_page_range = HugePageRange::from_virt_addr(pages.start_address(),pages.size_in_bytes(),page_size);
 		AllocatedHugePages {
 			pages: huge_page_range.clone()
@@ -220,7 +220,7 @@ impl AllocatedHugePages {
 	}
 
 	pub fn page_size(&self) -> HugePageSize {
-		&self.pages.page_size()
+		*(&self.pages.page_size())
 	}
 
 	/// Merges the given `AllocatedPages` object `ap` into this `AllocatedPages` object (`self`).
@@ -252,8 +252,8 @@ impl AllocatedHugePages {
 	pub fn split(self, at_page: HugePage) -> Option<(AllocatedHugePages, AllocatedHugePages)> {
 		let end_of_first = at_page - 1;
 		if at_page > *self.pages.start() && end_of_first <= *self.pages.end() {
-			let first  = PageRange::new(*self.pages.start(), end_of_first);
-			let second = PageRange::new(at_page, *self.pages.end());
+			let first  = HugePageRange::new(*self.pages.start(), end_of_first);
+			let second = HugePageRange::new(at_page, *self.pages.end());
 			Some((
 				AllocatedHugePages { pages: first }, 
 				AllocatedHugePages { pages: second },
@@ -556,7 +556,7 @@ pub fn allocate_huge_pages_deferred(
 	requested_vaddr: Option<VirtualAddress>,
 	num_pages: usize,
 	page_size : HugePageSize
-) -> Result<(AllocatedPages, DeferredAllocAction<'static>), &'static str> {
+) -> Result<(AllocatedHugePages, DeferredAllocAction<'static>), &'static str> {
 	if num_pages == 0 {
 		warn!("PageAllocator: requested an allocation of 0 pages... stupid!");
 		return Err("cannot allocate zero pages");
@@ -571,11 +571,11 @@ pub fn allocate_huge_pages_deferred(
 		// Look for the chunk that contains the desired address, 
 		// or any chunk that is large enough, if no desired address was requested.
 		// Obviously, we cannot use any chunk that is already allocated.
-		let potential_start_page_of_chunk =  HugePage::containing_address(*c.pages.start() + page_size.page_ratio() - 1, page_size).corresponding_normal_page();
+		let potential_start_page_of_chunk =  HugePage::containing_address(c.pages.start_address() + page_size.value() - 1, page_size).corresponding_normal_page();
 
 		let potential_start_page = desired_start_page.unwrap_or(potential_start_page_of_chunk);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
-		let potential_end_page   = potential_start_page + (num_pages*page_size.page_ratio() - 1); 
+		let potential_end_page   = potential_start_page + (num_pages*page_size.huge_page_ratio() - 1); 
 		if potential_start_page >= *c.pages.start() && potential_end_page <= *c.pages.end() {
 			// Here: chunk `c` was big enough and did contain the requested address.
 			// If it's not allocated, we can use it. 
@@ -599,7 +599,7 @@ pub fn allocate_huge_pages_deferred(
 		if num_pages == c.pages.size_in_pages() {
 			c.allocated = true;
 			return Ok((
-				c.as_allocated_huge_pages(),
+				c.as_allocated_huge_pages(page_size),
 				DeferredAllocAction::new(None, None, None),
 			));
 		}
@@ -635,7 +635,7 @@ pub fn allocate_huge_pages_deferred(
 			pages: extra_free_pages,
 		};
 		return Ok((
-			allocated_chunk.as_allocated_huge_pages(),
+			allocated_chunk.as_allocated_huge_pages(page_size),
 			DeferredAllocAction::new(allocated_chunk, extra_free_chunk, None),
 		));
 	}
@@ -668,13 +668,14 @@ pub fn allocate_huge_pages_by_bytes_deferred(
 	requested_vaddr: Option<VirtualAddress>,
 	num_bytes: usize,
 	page_size: HugePageSize
-) -> Result<(AllocatedPages, DeferredAllocAction<'static>), &'static str> {
+) -> Result<(AllocatedHugePages, DeferredAllocAction<'static>), &'static str> {
 	let actual_num_bytes = if let Some(vaddr) = requested_vaddr {
-		num_bytes + (vaddr.value() % (page_size))
+		num_bytes + (vaddr.value() % (page_size.value()))
 	} else {
 		num_bytes
 	};
-	let num_pages = (actual_num_bytes + page_size - 1) / page_size; // round up
+	let num_pages = (actual_num_bytes + page_size.value() - 1) / page_size.value(); // round up
+
 	allocate_huge_pages_deferred(requested_vaddr, num_pages, page_size)
 }
 
@@ -710,7 +711,7 @@ pub fn allocate_pages_by_bytes_at(vaddr: VirtualAddress, num_bytes: usize) -> Re
 		.map(|(ap, _action)| ap)
 }
 
-pub fn allocate_huge_pages_by_bytes(num_bytes: usize, page_size : HugePageSize) -> Option<AllocatedPages> {
+pub fn allocate_huge_pages_by_bytes(num_bytes: usize, page_size : HugePageSize) -> Option<AllocatedHugePages> {
 	allocate_huge_pages_by_bytes_deferred(None, num_bytes, page_size)
 		.map(|(ap, _action)| ap)
 		.ok()

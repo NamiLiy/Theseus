@@ -11,13 +11,14 @@ use core::mem;
 use core::ops::Deref;
 use core::ptr::Unique;
 use core::slice;
-use {BROADCAST_TLB_SHOOTDOWN_FUNC, VirtualAddress, PhysicalAddress, get_frame_allocator_ref, FrameRange, Page, Frame, FrameAllocator, AllocatedPages}; 
-use paging::{PageRange, get_current_p4};
+use {BROADCAST_TLB_SHOOTDOWN_FUNC, VirtualAddress, PhysicalAddress, get_frame_allocator_ref, FrameRange, Page, Frame, FrameAllocator, AllocatedPages, AllocatedHugePages}; 
+use paging::{PageRange, HugePageRange, get_current_p4};
 use paging::table::{P4, Table, Level4};
 use kernel_config::memory::{ENTRIES_PER_PAGE_TABLE, PAGE_SIZE};
 use irq_safety::MutexIrqSafe;
 use super::{EntryFlags, tlb_flush_virt_addr};
 use zerocopy::FromBytes;
+use memory_structs::*;
 
 pub struct Mapper {
     p4: Unique<Table<Level4>>,
@@ -208,7 +209,7 @@ impl Mapper {
     /// 
     /// Consumes the given `AllocatedPages` and returns a `MappedPages` object which contains those `AllocatedPages`.
     pub fn map_allocated_huge_pages<A>(&mut self, pages: AllocatedHugePages, flags: EntryFlags, allocator: &mut A)
-        -> Result<MappedPages, &'static str>
+        -> Result<MappedHugePages, &'static str>
         where A: FrameAllocator
     {
         // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
@@ -222,7 +223,7 @@ impl Mapper {
             let frame_set = allocator.allocate_hugepage_frame(pages.page_size()).ok_or("map_allocated_pages(): couldn't allocate new frame, out of memory!")?;
 
             // SovledQ change to support huge pages
-            if page_size.page_ratio() == 1 {
+            if pages.page_size().huge_page_ratio() == 1 {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
                 let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
                 let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
@@ -237,7 +238,7 @@ impl Mapper {
                 p1[page.p1_index()].set(frame_set.start_frame(), flags | EntryFlags::PRESENT);
             }
             //2M pages
-            else if page_size.page_ratio() == 9 {
+            else if pages.page_size().huge_page_ratio() == 9 {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
                 let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
 
@@ -248,11 +249,11 @@ impl Mapper {
                     return Err("map_allocated_pages(): page was already in use");
                 } 
 
-                p1[page.p2_index()].set(frame, flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+                p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
                 
             }
             //1G pages
-            else if page_size.page_ratio() == 18 {
+            else if pages.page_size().huge_page_ratio() == 18 {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
 
                 if !p3[page.p3_index()].is_unused() {
@@ -262,11 +263,11 @@ impl Mapper {
                     return Err("map_allocated_pages(): page was already in use");
                 } 
 
-                p1[page.p3_index()].set(frame, flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+                p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
             }
         }
 
-        Ok(MappedPages {
+        Ok(MappedHugePages {
             page_table_p4: self.target_p4.clone(),
             pages,
             flags,
@@ -790,10 +791,10 @@ impl Deref for MappedHugePages {
 impl MappedHugePages {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
-    pub fn empty() -> MappedHugePages {
-        MappedPages {
+    pub fn empty(page_size: HugePageSize) -> MappedHugePages {
+        MappedHugePages {
             page_table_p4: get_current_p4(),
-            pages: AllocatedHugePages::empty(),
+            pages: AllocatedHugePages::empty(page_size),
             flags: Default::default(),
         }
     }
@@ -932,7 +933,7 @@ impl MappedHugePages {
         if self.size_in_pages() == 0 { return Ok(()); }
 
         for page in self.pages.clone() {
-            if pages.page_size().page_ratio() == 1 {
+            if self.pages.page_size().huge_page_ratio() == 1 {
                 let p1 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -943,7 +944,7 @@ impl MappedHugePages {
                 p1[page.p1_index()].set_unused();
             }
             
-            if pages.page_size().page_ratio() == 9 {
+            if self.pages.page_size().huge_page_ratio() == 9 {
                 let p2 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -953,7 +954,7 @@ impl MappedHugePages {
                 p2[page.p2_index()].set_unused();
             }
 
-            if pages.page_size().page_ratio() == 18 {
+            if self.pages.page_size().huge_page_ratio() == 18 {
                 let p3 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .ok_or("mapping code does not support huge pages")?;
@@ -971,12 +972,13 @@ impl MappedHugePages {
             // _allocator_ref.lock().deallocate_frame(frame);
         }
     
-        #[cfg(not(bm_map))]
-        {
-            if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-                func(self.pages.deref().clone());
-            }
-        }
+        // This is wrong but temporary disabling this
+        // #[cfg(not(bm_map))]
+        // {
+        //     if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
+        //         func(self.pages.deref().clone());
+        //     }
+        // }
 
         Ok(())
     }

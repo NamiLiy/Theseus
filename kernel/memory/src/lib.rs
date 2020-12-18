@@ -148,7 +148,7 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
     kernel_mmi.page_table.map_allocated_pages(allocated_pages, flags, frame_allocator.deref_mut())
 }
 
-pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedPages, &'static str> {
+pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedHugePages, &'static str> {
     // SovledQ : Currently return allocated pages in normal size. Should return in huge page size
     let allocated_huge_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("memory::create_huge_mapping(): couldn't allocate pages!")?;
 
@@ -161,7 +161,7 @@ pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : 
 
     // SovledQ : Should accept huge pages instead of normal pages
     // still needs to implement huge page frames ?
-    kernel_mmi.page_table.map_allocated_huge_pages(allocated_pages, flags, frame_allocator.deref_mut())
+    kernel_mmi.page_table.map_allocated_huge_pages(allocated_huge_pages, flags, frame_allocator.deref_mut())
 }
 
 
@@ -293,6 +293,7 @@ pub fn init_post_heap(page_table: PageTable, mut higher_half_mapped_pages: [Opti
 
 pub trait FrameAllocator {
     fn allocate_frame(&mut self) -> Option<Frame>;
+    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> ;
     fn allocate_frames(&mut self, num_frames: usize) -> Option<FrameRange>;
     fn deallocate_frame(&mut self, frame: Frame);
     /// Call this when a heap is set up, and the `alloc` types can be used.

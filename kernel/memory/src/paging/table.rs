@@ -89,8 +89,8 @@ impl<L> Table<L>
         where A: FrameAllocator
     {
         if self.next_table(index).is_none() {
-            warn!(!self[index].flags().is_huge(),
-                    "mapping code does not support huge pages");
+            // warn!(!self[index].flags().is_huge(),
+            //         "mapping code does not support huge pages");
             let frame = allocator.allocate_frame().expect("no frames available");
             self[index].set(frame, flags.into_writable() | EntryFlags::PRESENT); // must be PRESENT | WRITABLE for x86_64
             self.next_table_mut(index).unwrap().zero();

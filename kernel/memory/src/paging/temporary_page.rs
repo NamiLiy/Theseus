@@ -12,6 +12,7 @@ use paging::{PageTable, MappedPages};
 use super::table::{Table, Level1};
 use super::{Frame, FrameAllocator, VirtualAddress};
 use kernel_config::memory::TEMPORARY_PAGE_VIRT_ADDR;
+use memory_structs::*;
 
 
 /// A Page that can be temporarily mapped to the recursive page table frame,
@@ -87,6 +88,9 @@ impl FrameAllocator for TinyAllocator {
         unimplemented!();
     }
 
+    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> {
+        unimplemented!();
+    }
 
     fn deallocate_frame(&mut self, frame: Frame) {
         for frame_option in &mut self.0 {
