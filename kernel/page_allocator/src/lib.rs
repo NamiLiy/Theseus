@@ -219,6 +219,10 @@ impl AllocatedHugePages {
 		}
 	}
 
+	pub fn page_size(&self) -> HugePageSize {
+		&self.pages.page_size()
+	}
+
 	/// Merges the given `AllocatedPages` object `ap` into this `AllocatedPages` object (`self`).
 	/// This is just for convenience and usability purposes, it performs no allocation or remapping.
     ///

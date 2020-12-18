@@ -26,6 +26,8 @@ bitflags! {
 
 }
 
+// If more than 12 bits remain in the linear address, bit 7 (PS — page size) of the current paging-structure entry is consulted. If the bit is 0, the entry references another paging structure; if the bit is 1, the entry maps a page.•If only 12 bits remain in the linear address, the current paging-structure entry always maps a page (bit 7 is used for other purposes).
+
 impl EntryFlags {
     /// Returns true if the page the entry points to is a huge page.
     pub fn is_huge(&self) -> bool {

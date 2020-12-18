@@ -287,36 +287,45 @@ impl FrameAllocator for AreaFrameAllocator {
         }
     }
 
-    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<Frame> {
-        if let Some(area) = self.current_area {
-            // first, see if we need to skip beyond the current area (it may be already occupied)
-            self.skip_occupied_hugepage_frames(page_size);
+    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> {
+        let num_frames = page_size.page_ratio();
 
-            // "clone" the frame to return it if it's free. Frame doesn't
-            // implement Clone, but we can construct an identical frame.
-            let frame = Frame { number: self.next_free_frame.number };
+        // this is just another shitty way to get contiguous frames
+        // it wastes the frames that are allocated 
 
-            // the last frame of the current area
-            let last_frame_in_current_area = {
-                let address = area.base_addr + area.size_in_bytes - 1;
-                Frame::containing_hugepage_address(address, page_size: HugePageSize)
-            };
-
-            if frame > last_frame_in_current_area {
-                // all frames of current area are used, switch to next area
-                self.select_next_area();
-            } else {
-                // frame is unused, increment `next_free_frame` and return it
-                self.next_free_frame += 1;
-                // trace!("AreaFrameAllocator: allocated frame {:?}", frame);
-                return Some(frame);
+        if let Some(first_frame) = self.allocate_frame() {
+            let first_frame_paddr = first_frame.start_address();
+            if first_frame_paddr % (page_size.page_size.value() != 0 {
+                warn!("AreaFrameAllocator::allocate_hugepage_frame(): initial frame at {} wasted, trying again!", first_frame_paddr);
+                return self.allocate_hugepage_frame(page_size);
             }
-            // `frame` was not valid, try it again with the updated `next_free_frame`
-            self.allocate_frame(page_size)
-        } else {
-            error!("FATAL ERROR: AreaFrameAllocator: out of physical memory!!!");
-            None // no free frames left
+
+            // here, we successfully got the first frame, so try to allocate the rest
+            for i in 1..num_frames {
+                if let Some(f) = self.allocate_frame() {
+                    if f.start_address() == (first_frame_paddr + (i * PAGE_SIZE)) {
+                        // still getting contiguous frames, so we're good
+                        continue;
+                    }
+                    else {
+                        // didn't get a contiguous frame, so let's try again
+                        warn!("AreaFrameAllocator::allocate_frames(): could only alloc {}/{} contiguous frames (those are wasted), trying again!", i, num_frames);
+                        return self.allocate_hugepage_frame(page_size);
+                    }
+                }
+                else {
+                    error!("Error: AreaFrameAllocator::allocate_frames(): couldn't allocate {} contiguous frames, out of memory!", num_frames);
+                    return None;
+                }
+            }
+
+            // here, we have allocated enough frames, and checked that they're all contiguous
+            let last_frame = first_frame + (num_frames - 1); // -1 for inclusive bound. Parenthesis needed to avoid overflow.
+            return Some(FrameRange::new(first_frame, last_frame));
         }
+
+        error!("Error: AreaFrameAllocator::allocate_frames(): couldn't allocate {} contiguous frames, out of memory!", num_frames);
+        None
     }
 
     

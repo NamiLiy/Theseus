@@ -403,6 +403,10 @@ impl FrameRange {
         self.0.start().start_address()
     }
 
+    pub fn start_frame(&self) -> Frame {
+        self.0.start()
+    }
+
     /// Returns the number of `Frame`s covered by this iterator.
     /// Use this instead of the Iterator trait's `count()` method.
     /// This is instant, because it doesn't need to iterate over each entry, unlike normal iterators.
@@ -869,6 +873,10 @@ impl HugePageRange {
     /// Whether this `PageRange` contains the given `VirtualAddress`.
     pub fn contains_virt_addr(&self, virt_addr: VirtualAddress) -> bool {
         self.0.contains(&Page::containing_address(virt_addr))
+    }
+
+    pub fn page_size(&self) -> HugePageSize {
+        self.0.start().page_size()
     }
 
     /// Returns the offset of the given `VirtualAddress` within this `PageRange`,
