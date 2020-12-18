@@ -148,22 +148,24 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
     kernel_mmi.page_table.map_allocated_pages(allocated_pages, flags, frame_allocator.deref_mut())
 }
 
+/// Top level function to get a mapping of `size_in_bytes` as hugepages of page_size. 
+/// When obtaining a page_size it is checked that only a valid page size on the architecture  
+/// is allowed
 pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedHugePages, &'static str> {
-    // SovledQ : Currently return allocated pages in normal size. Should return in huge page size
-    let allocated_huge_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("memory::create_huge_mapping(): couldn't allocate pages!")?;
+    
+    // Get AllocatedHugePages for the size of the range needed. 
+    let allocated_huge_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("create_huge_mapping(): couldn't allocate pages!")?;
 
-    let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_contiguous_mapping(): KERNEL_MMI was not yet initialized!")?;
+    let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_huge_mapping(): KERNEL_MMI was not yet initialized!")?;
     let mut kernel_mmi = kernel_mmi_ref.lock();
 
     let mut frame_allocator = FRAME_ALLOCATOR.try()
-        .ok_or("create_contiguous_mapping(): couldnt get FRAME_ALLOCATOR")?
+        .ok_or("create_huge_mapping(): couldnt get FRAME_ALLOCATOR")?
         .lock();
 
-    // SovledQ : Should accept huge pages instead of normal pages
-    // still needs to implement huge page frames ?
+    // Consumes the AllocatedHugePages and return MappedHugePages structure
     kernel_mmi.page_table.map_allocated_huge_pages(allocated_huge_pages, flags, frame_allocator.deref_mut())
 }
-
 
 pub static BROADCAST_TLB_SHOOTDOWN_FUNC: Once<fn(PageRange)> = Once::new();
 
@@ -293,8 +295,10 @@ pub fn init_post_heap(page_table: PageTable, mut higher_half_mapped_pages: [Opti
 
 pub trait FrameAllocator {
     fn allocate_frame(&mut self) -> Option<Frame>;
-    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> ;
+    
     fn allocate_frames(&mut self, num_frames: usize) -> Option<FrameRange>;
+    /// Allocate set of frames alligned at a page number
+    fn allocate_alligned_frames(&mut self, num_frames: usize, allign: usize) -> Option<FrameRange> ;
     fn deallocate_frame(&mut self, frame: Frame);
     /// Call this when a heap is set up, and the `alloc` types can be used.
     fn alloc_ready(&mut self);

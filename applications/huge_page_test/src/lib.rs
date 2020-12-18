@@ -11,7 +11,7 @@ extern crate memory_structs;
 
 use alloc::vec::Vec;
 use alloc::string::String;
-use memory::{create_huge_mapping, EntryFlags};
+use memory::{create_mapping, create_huge_mapping, EntryFlags};
 use memory_structs::HugePageSize;
 
 pub fn main(_args: Vec<String>) -> isize {
@@ -19,12 +19,24 @@ pub fn main(_args: Vec<String>) -> isize {
     // Get 2M pages
     let page_size = HugePageSize::new(2*1024*1024).unwrap();
     let bytes = 2*1024*1024;
-    match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
-        Ok(_M) => {
-            println!("Mapping Successful");
+
+    //create normal mapping
+    match create_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE){
+        Ok(_m) => {
+            println!("Normal mapping Successful");
         },
         Err(e) => {
-            println!("ERROR : MAPPING FAILED {}",e);
+            println!("ERROR : Normal MAPPING FAILED {}",e);
+        }
+    }
+
+    // create huge mapping
+    match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
+        Ok(_m) => {
+            println!("Huge mapping successful");
+        },
+        Err(e) => {
+            println!("ERROR : Huge MAPPING FAILED {}",e);
         }
     }
     0

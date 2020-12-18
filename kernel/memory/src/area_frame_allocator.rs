@@ -178,42 +178,6 @@ impl AreaFrameAllocator {
             self.skip_occupied_frames();
         }
     }
-
-    fn skip_occupied_hugepage_frames(&mut self, page_size: HugePageSize) {
-        let mut rerun = false;
-        match self.occupied {
-            VectorArray::Array((len, ref arr)) => {
-                for area in arr.iter().take(len) {
-                    let start = Frame::containing_huagepage_address(area.base_addr, page_size);
-                    let end = Frame::containing_huagepage_address(area.base_addr + area.size_in_bytes, page_size);
-                    if self.next_free_frame >= start && self.next_free_frame <= end {
-                        self.next_free_frame = end + 1; 
-                        trace!("AreaFrameAllocator: skipping occupied area to next frame {:?}", self.next_free_frame);
-                        rerun = true;
-                        break;
-                    }
-                }
-            }
-            VectorArray::Vector(ref v) => {
-                for area in v.iter() {
-                    let start = Frame::containing_huagepage_address(area.base_addr, page_size);
-                    let end = Frame::containing_huagepage_address(area.base_addr + area.size_in_bytes, page_size);
-                    if self.next_free_frame >= start && self.next_free_frame <= end {
-                        self.next_free_frame = end + 1; 
-                        trace!("AreaFrameAllocator: skipping occupied area to next frame {:?}", self.next_free_frame);
-                        rerun = true;
-                        break;
-                    }
-                }
-            }
-        };
-        
-        // If we actually skipped an occupied area, then we need to rerun this again,
-        // to ensure that we didn't skip into another occupied area.
-        if rerun {
-            self.skip_occupied_hugepage_frames(page_size);
-        }
-    }
 }
 
 impl FrameAllocator for AreaFrameAllocator {
@@ -288,17 +252,18 @@ impl FrameAllocator for AreaFrameAllocator {
         }
     }
 
-    fn allocate_hugepage_frame(&mut self, page_size: HugePageSize) -> Option<FrameRange> {
-        let num_frames = page_size.huge_page_ratio();
+    /// Allocate a set of frames aligned at a boundary
+    /// Allign is provided as a multiplication of PAGE_SIZE
+    fn allocate_alligned_frames(&mut self, num_frames: usize, allign: usize) -> Option<FrameRange> {
 
         // this is just another shitty way to get contiguous frames
         // it wastes the frames that are allocated 
 
         if let Some(first_frame) = self.allocate_frame() {
             let first_frame_paddr = first_frame.start_address();
-            if first_frame_paddr.value() % page_size.value() != 0 {
-                warn!("AreaFrameAllocator::allocate_hugepage_frame(): initial frame at {} wasted, trying again!", first_frame_paddr);
-                return self.allocate_hugepage_frame(page_size);
+            if first_frame_paddr.value() % (allign*PAGE_SIZE) != 0 {
+                // warn!("AreaFrameAllocator::allocate_hugepage_frame(): initial frame at {} wasted, trying again!", first_frame_paddr);
+                return self.allocate_alligned_frames(num_frames, allign);
             }
 
             // here, we successfully got the first frame, so try to allocate the rest
@@ -310,8 +275,8 @@ impl FrameAllocator for AreaFrameAllocator {
                     }
                     else {
                         // didn't get a contiguous frame, so let's try again
-                        warn!("AreaFrameAllocator::allocate_frames(): could only alloc {}/{} contiguous frames (those are wasted), trying again!", i, num_frames);
-                        return self.allocate_hugepage_frame(page_size);
+                        // warn!("AreaFrameAllocator::allocate_frames(): could only alloc {}/{} contiguous frames (those are wasted), trying again!", i, num_frames);
+                        return self.allocate_alligned_frames(num_frames, allign);
                     }
                 }
                 else {
