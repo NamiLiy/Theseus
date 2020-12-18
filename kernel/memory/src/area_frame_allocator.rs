@@ -256,26 +256,23 @@ impl FrameAllocator for AreaFrameAllocator {
     /// Allign is provided as a multiplication of PAGE_SIZE
     fn allocate_alligned_frames(&mut self, num_frames: usize, allign: usize) -> Option<FrameRange> {
 
-        // this is just another shitty way to get contiguous frames
-        // it wastes the frames that are allocated 
+        // TODO: This way of getting contiguous frames would waste the frames that are allocated 
 
         if let Some(first_frame) = self.allocate_frame() {
             let first_frame_paddr = first_frame.start_address();
             if first_frame_paddr.value() % (allign*PAGE_SIZE) != 0 {
-                // warn!("AreaFrameAllocator::allocate_hugepage_frame(): initial frame at {} wasted, trying again!", first_frame_paddr);
                 return self.allocate_alligned_frames(num_frames, allign);
             }
 
-            // here, we successfully got the first frame, so try to allocate the rest
+            // after getting the first frame successfully, we can begin to allocate the rest of the requested frames
             for i in 1..num_frames {
                 if let Some(f) = self.allocate_frame() {
                     if f.start_address() == (first_frame_paddr + (i * PAGE_SIZE)) {
-                        // still getting contiguous frames, so we're good
+                        // continue to even more frames if we're good
                         continue;
                     }
                     else {
-                        // didn't get a contiguous frame, so let's try again
-                        // warn!("AreaFrameAllocator::allocate_frames(): could only alloc {}/{} contiguous frames (those are wasted), trying again!", i, num_frames);
+                        // try again with self function to get a contiguous frame
                         return self.allocate_alligned_frames(num_frames, allign);
                     }
                 }
@@ -285,7 +282,7 @@ impl FrameAllocator for AreaFrameAllocator {
                 }
             }
 
-            // here, we have allocated enough frames, and checked that they're all contiguous
+            // check for the frames contiguity for those allocated frames
             let last_frame = first_frame + (num_frames - 1); // -1 for inclusive bound. Parenthesis needed to avoid overflow.
             return Some(FrameRange::new(first_frame, last_frame));
         }
