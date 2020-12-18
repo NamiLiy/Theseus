@@ -8,6 +8,7 @@ extern crate kernel_config;
 extern crate multiboot2;
 extern crate xmas_elf;
 #[macro_use] extern crate derive_more;
+#[macro_use] extern crate raw_cpuid;
 extern crate bit_field;
 #[cfg(target_arch = "x86_64")]
 extern crate entryflags_x86_64;
@@ -261,6 +262,7 @@ impl PhysicalMemoryArea {
     }
 }
 
+/// A structure indicating a page size the CPU supports
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct HugePageSize(usize);
 
@@ -269,20 +271,52 @@ impl HugePageSize {
     /// checking that the address is canonical,
     /// i.e., bits (64:48] are sign-extended from bit 47.
     pub fn new(page_size_in_bytes: usize) -> Result<HugePageSize, &'static str> {
-        // TODO Check whether the huge pagesize is valid on the architecture
-        Ok(HugePageSize(page_size_in_bytes))
+        const MB_2: usize = 2*1024*1024;
+        const GB_1: usize = 1024*1024*1024;
+        match page_size_in_bytes {
+            // 4K pages
+            4096 => Ok(HugePageSize(page_size_in_bytes)),
+
+            // 2M pages
+            // if CR0.PG = 1, CR4.PAE = 1, and IA32_EFER.LME = 1, IA-32e paging is used
+            // IA-32e supports 2M paging
+            MB_2 => Ok(HugePageSize(page_size_in_bytes)),
+
+            // 1G pages
+            // If CPUID.80000001H:EDX.Page1GB [bit 26] = 1,
+            GB_1 => {
+                let res = cpuid!(0x80000001);
+                if (res.edx >> 26) & 1  == 1 {
+                    Ok(HugePageSize(page_size_in_bytes))
+                } else {
+                    Err("The architecture does not support 1GB page size")
+                }
+            },
+
+            _ => {
+                Err("The architecture does not support the requested page size")
+            },
+        }
+        
     }
 
     pub fn huge_page_ratio(&self) -> usize {
-        self.0 / PAGE_SIZE
+        // self.0 / PAGE_SIZE
+
+        const MB_2: usize = 2*1024*1024;
+        const GB_1: usize = 1024*1024*1024;
+        match self.0 {
+            4096 => 1,
+            MB_2 => 512,
+            GB_1 => 512*512,
+            _ => 1,
+        }
     }
 
     #[inline]
     pub const fn value(&self) -> usize {
         self.0
     }
-
-    //Page1GB: 1-GByte pages.If CPUID.80000001H:EDX.Page1GB [bit 26] = 1, 1-GByte pages are supported with IA-32e paging (see Section 4.5)
 
     
 }

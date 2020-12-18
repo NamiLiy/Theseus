@@ -23,5 +23,9 @@ path = "../kernel_config"
 [dependencies.entryflags_x86_64]
 path = "../entryflags_x86_64"
 
+[dependencies.raw-cpuid]
+version = "7.0.3"
+features = [ "use_arch" ]
+
 [lib]
 crate-type = ["rlib"]

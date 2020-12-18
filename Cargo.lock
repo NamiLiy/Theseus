@@ -1330,6 +1330,7 @@ dependencies = [
  "entryflags_x86_64",
  "kernel_config",
  "multiboot2",
+ "raw-cpuid",
  "xmas-elf",
  "zerocopy",
 ]

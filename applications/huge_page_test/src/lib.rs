@@ -16,10 +16,8 @@ use memory_structs::HugePageSize;
 
 pub fn main(_args: Vec<String>) -> isize {
     println!("Testing huge page mappings");
-    // Get 2M pages
-    let page_size = HugePageSize::new(2*1024*1024).unwrap();
-    let bytes = 2*1024*1024;
 
+    let bytes = 2*1024*1024;
     //create normal mapping
     match create_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE){
         Ok(_m) => {
@@ -30,14 +28,39 @@ pub fn main(_args: Vec<String>) -> isize {
         }
     }
 
-    // create huge mapping
-    match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
-        Ok(_m) => {
-            println!("Huge mapping successful");
+    // create 2M mapping
+    match HugePageSize::new(2*1024*1024) {
+        Ok(page_size) => {
+            match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
+                Ok(_m) => {
+                    println!("2M mapping successful");
+                },
+                Err(e) => {
+                    println!("ERROR : 2M MAPPING FAILED {}",e);
+                }
+            }
         },
         Err(e) => {
-            println!("ERROR : Huge MAPPING FAILED {}",e);
-        }
+            println!("Err {}",e);
+        },
     }
+
+    // create 1G mapping
+    match HugePageSize::new(1024*1024*1024) {
+        Ok(page_size) => {
+            match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
+                Ok(_m) => {
+                    println!("1G mapping successful");
+                },
+                Err(e) => {
+                    println!("ERROR : 1G MAPPING FAILED {}",e);
+                }
+            }
+        },
+        Err(e) => {
+            println!("Err {}",e);
+        },
+    }
+
     0
 }
