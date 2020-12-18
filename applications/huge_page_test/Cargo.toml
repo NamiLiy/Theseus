@@ -1,0 +1,24 @@
+[package]
+name = "huge_page_test"
+version = "0.1.0"
+authors = ["CPSC626"]
+build = "../../build.rs"
+
+[dependencies]
+
+
+[dependencies.log]
+version = "0.4.8"
+
+
+[dependencies.terminal_print]
+path = "../../kernel/terminal_print"
+
+[dependencies.memory]
+path = "../../kernel/memory"
+
+[dependencies.memory_structs]
+path = "../../kernel/memory_structs"
+
+# [dependencies.application_main_fn]
+# path = "../../compiler_plugins"

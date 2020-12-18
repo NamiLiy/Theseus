@@ -946,6 +946,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8734b0cfd3bc3e101ec59100e101c2eecd19282202e87808b3037b442777a83"
 
 [[package]]
+name = "huge_page_test"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "memory",
+ "memory_structs",
+ "terminal_print",
+]
+
+[[package]]
 name = "immediate_input_echo"
 version = "0.1.0"
 dependencies = [
