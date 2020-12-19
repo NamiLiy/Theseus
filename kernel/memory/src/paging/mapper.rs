@@ -205,9 +205,7 @@ impl Mapper {
         })
     }
 
-    /// Maps the given `AllocatedHugePages` to randomly chosen (allocated) chunks of physical frames equal 
-    /// to the size of HugePage
-    /// 
+    /// Maps the given `AllocatedHugePages` to randomly chosen (allocated) physical frames.
     /// Consumes the given `AllocatedHugePages` and returns a `MappedHugePages` object which contains those `AllocatedHugePages`.
     pub fn map_allocated_huge_pages<A>(&mut self, pages: AllocatedHugePages, flags: EntryFlags, allocator: &mut A)
         -> Result<MappedHugePages, &'static str>
@@ -220,7 +218,7 @@ impl Mapper {
 
         for page in pages.deref().clone() {
 
-            // Allocate a set of contiguous physical frames corresponding to huge page size
+            // Allocate a set of contigious physical frames corresponding to huge page size
             let frame_set = allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_allocated_huge_pages(): couldn't allocate new frame, out of memory!")?;
 
             // 4K page
