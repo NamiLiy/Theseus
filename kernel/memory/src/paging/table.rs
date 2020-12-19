@@ -88,6 +88,9 @@ impl<L> Table<L>
                                 -> &mut Table<L::NextLevel>
         where A: FrameAllocator
     {
+        if self[index].flags().is_huge() {
+            error!("next_table_create() : A huge page already exists at this location");
+        }
         if self.next_table(index).is_none() {
             // warn!(!self[index].flags().is_huge(),
             //         "mapping code does not support huge pages");

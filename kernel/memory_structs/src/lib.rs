@@ -764,6 +764,7 @@ pub struct AggregatedSectionMemoryBounds {
 }
 
 /// A virtual memory page, which contains the index and the size of the page
+/// HugePageSize contains only pagesizes supported by the architecture
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HugePage {
     number: usize,
@@ -771,7 +772,7 @@ pub struct HugePage {
 }
 impl fmt::Debug for HugePage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Page(v{:#X})", self.start_address())
+        write!(f, "HugePage(v{:#X})", self.start_address())
     }
 }
 
@@ -790,10 +791,12 @@ impl HugePage {
         VirtualAddress::new_canonical(self.number * self.page_size.value())
     }
 
+    /// Convenience function to get the number of normal page at the first location of huge frame
     pub fn corresponding_normal_page(&self) -> Page {
         Page::containing_address(self.start_address())
     }
 
+    /// Convenience function to get the hugepage covering a normal page
     pub fn from_normal_page(page : Page, page_size: HugePageSize) -> HugePage {
         HugePage::containing_address(page.start_address(), page_size)
     }
@@ -896,8 +899,8 @@ impl HugePageRange {
         HugePageRange::new(HugePage { number: 1, page_size: page_size}, HugePage { number: 0, page_size: page_size })
     }
 
-    /// A convenience method for creating a new `PageRange`
-    /// that spans all `Page`s from the given virtual address
+    /// A convenience method for creating a new `HugePageRange`
+    /// that spans all `HugePage`s from the given virtual address
     /// to an end bound based on the given size.
     pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: HugePageSize) -> HugePageRange {
         assert!(size_in_bytes > 0);
@@ -907,7 +910,7 @@ impl HugePageRange {
         HugePageRange::new(start_page, end_page)
     }
 
-    /// Returns the `VirtualAddress` of the starting `Page`.
+    /// Returns the `VirtualAddress` of the starting `HugePage`.
     pub fn start_address(&self) -> VirtualAddress {
         self.0.start().start_address()
     }
@@ -932,7 +935,7 @@ impl HugePageRange {
         self.0.start().page_size()
     }
 
-    /// Returns the offset of the given `VirtualAddress` within this `PageRange`,
+    /// Returns the offset of the given `VirtualAddress` within this `HugePageRange`,
     pub fn offset_of_address(&self, virt_addr: VirtualAddress) -> Option<usize> {
         if self.contains_virt_addr(virt_addr) {
             Some(virt_addr.value() - self.start_address().value())
