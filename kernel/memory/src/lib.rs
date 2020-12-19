@@ -149,8 +149,7 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
 }
 
 /// Top level function to get a mapping of `size_in_bytes` as hugepages of page_size. 
-/// When obtaining a page_size it is checked that only a valid page size on the architecture  
-/// is allowed
+/// Only page_sizes supported by architecture can be obtained as HugePageSizes
 pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedHugePages, &'static str> {
     
     // Get AllocatedHugePages for the size of the range needed. 
