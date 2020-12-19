@@ -768,7 +768,10 @@ impl Drop for MappedPages {
 }
 
 /// Represents a contiguous range of virtual memory pages that are currently mapped. 
-/// `MappedHugePages` here is highly resembly the original MappedPages struct.
+/// `MappedHugePages` here is highly resembles MappedPages struct.
+/// We defined a new structure as we embed the page size in AllocatedHugePages.
+/// Ideally this should be the same structure as MappedPages but we refrained from modifying 
+/// the original structure to ease debugging for errors.
 #[derive(Debug)]
 pub struct MappedHugePages {
     /// The Frame containing the top-level P4 page table that this MappedPages was originally mapped into. 
@@ -801,7 +804,8 @@ impl MappedHugePages {
         self.flags
     }
 
-
+    /// Merge is not yet implemented for MappedHugePages
+    /// Merge in addition have to check whether HugePages are of same type
     pub fn merge(&mut self, mp: MappedHugePages) -> Result<(), (&'static str, MappedHugePages)> {
         Err(("Merge not yet implemented for huge pages", mp))
     }
@@ -852,6 +856,8 @@ impl MappedHugePages {
         }
 
         for page in self.pages.clone() {
+
+            // 4K
             if self.pages.page_size().huge_page_ratio() == 1 {
                 let p1 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
@@ -863,6 +869,7 @@ impl MappedHugePages {
                 p1[page.p1_index()].set(frame, new_flags | EntryFlags::PRESENT);
             }
             
+            // 2M
             if self.pages.page_size().huge_page_ratio() == 9 {
                 let p2 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
@@ -873,6 +880,7 @@ impl MappedHugePages {
                 p2[page.p2_index()].set(frame, new_flags | EntryFlags::PRESENT);
             }
 
+            // 1G
             if self.pages.page_size().huge_page_ratio() == 18 {
                 let p3 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
@@ -898,6 +906,8 @@ impl MappedHugePages {
         if self.size_in_pages() == 0 { return Ok(()); }
 
         for page in self.pages.clone() {
+
+            // 4K page
             if self.pages.page_size().huge_page_ratio() == 1 {
                 let p1 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
@@ -909,6 +919,7 @@ impl MappedHugePages {
                 p1[page.p1_index()].set_unused();
             }
             
+            // 2M page
             if self.pages.page_size().huge_page_ratio() == 9 {
                 let p2 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
@@ -919,6 +930,7 @@ impl MappedHugePages {
                 p2[page.p2_index()].set_unused();
             }
 
+            // 1G page
             if self.pages.page_size().huge_page_ratio() == 18 {
                 let p3 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
@@ -1010,7 +1022,7 @@ impl MappedHugePages {
     }
 
 
-    /// Reinterprets this `MappedPages`'s underlying memory region as a slice of any type.
+    /// Reinterprets this `MappedHugePages`'s underlying memory region as a slice of any type.
     /// 
     /// It has similar type requirements as the [`as_type()`](#method.as_type) method.
     /// 
@@ -1018,7 +1030,7 @@ impl MappedHugePages {
     pub fn as_slice<T: FromBytes>(&self, byte_offset: usize, length: usize) -> Result<&[T], &'static str> {
         let size_in_bytes = mem::size_of::<T>() * length;
         if false {
-            debug!("MappedPages::as_slice(): requested slice of type {} with length {} (total size {}) at byte_offset {}, MappedPages size {}!",
+            debug!("MappedHugePages::as_slice(): requested slice of type {} with length {} (total size {}) at byte_offset {}, MappedHugePages size {}!",
                 core::any::type_name::<T>(),
                 length, size_in_bytes, byte_offset, self.size_in_bytes()
             );
@@ -1027,14 +1039,14 @@ impl MappedHugePages {
         // check that size of slice fits within the size of the mapping
         let end = byte_offset + (length * mem::size_of::<T>());
         if end > self.size_in_bytes() {
-            error!("MappedPages::as_slice(): requested slice of type {} with length {} (total size {}) at byte_offset {}, which is too large for MappedPages of size {}!",
+            error!("MappedHugePages::as_slice(): requested slice of type {} with length {} (total size {}) at byte_offset {}, which is too large for MappedHugePages of size {}!",
                 core::any::type_name::<T>(),
                 length, size_in_bytes, byte_offset, self.size_in_bytes()
             );
-            return Err("requested slice length and offset would not fit within the MappedPages bounds");
+            return Err("requested slice length and offset would not fit within the MappedHugePages bounds");
         }
 
-        // SAFE: we guarantee the size and lifetime are within that of this MappedPages object
+        // SAFE: we guarantee the size and lifetime are within that of this MappedHugePages object
         let slc: &[T] = unsafe {
             slice::from_raw_parts((self.pages.start_address().value() + byte_offset) as *const T, length)
         };
@@ -1049,7 +1061,7 @@ impl MappedHugePages {
     pub fn as_slice_mut<T: FromBytes>(&mut self, byte_offset: usize, length: usize) -> Result<&mut [T], &'static str> {
         let size_in_bytes = mem::size_of::<T>() * length;
         if false {
-            debug!("MappedPages::as_slice_mut(): requested slice of type {} with length {} (total size {}) at byte_offset {}, MappedPages size {}!",
+            debug!("MappedHugePages::as_slice_mut(): requested slice of type {} with length {} (total size {}) at byte_offset {}, MappedHugePages size {}!",
                 core::any::type_name::<T>(), 
                 length, size_in_bytes, byte_offset, self.size_in_bytes()
             );
@@ -1057,21 +1069,21 @@ impl MappedHugePages {
         
         // check flags to make sure mutability is allowed (otherwise a page fault would occur on a write)
         if !self.flags.is_writable() {
-            error!("MappedPages::as_slice_mut(): requested mutable slice of type {} with length {} (total size {}) at byte_offset {}, but MappedPages weren't writable (flags: {:?})",
+            error!("MappedHugePages::as_slice_mut(): requested mutable slice of type {} with length {} (total size {}) at byte_offset {}, but MappedHugePages weren't writable (flags: {:?})",
                 core::any::type_name::<T>(),
                 length, size_in_bytes, byte_offset, self.flags
             );
-            return Err("as_slice_mut(): MappedPages were not writable");
+            return Err("as_slice_mut(): MappedHugePages were not writable");
         }
 
         // check that size of slice fits within the size of the mapping
         let end = byte_offset + (length * mem::size_of::<T>());
         if end > self.size_in_bytes() {
-            error!("MappedPages::as_slice_mut(): requested mutable slice of type {} with length {} (total size {}) at byte_offset {}, which is too large for MappedPages of size {}!",
+            error!("MappedHugePages::as_slice_mut(): requested mutable slice of type {} with length {} (total size {}) at byte_offset {}, which is too large for MappedHugePages of size {}!",
                 core::any::type_name::<T>(),
                 length, size_in_bytes, byte_offset, self.size_in_bytes()
             );
-            return Err("requested slice length and offset would not fit within the MappedPages bounds");
+            return Err("requested slice length and offset would not fit within the MappedHugePages bounds");
         }
 
         // SAFE: we guarantee the size and lifetime are within that of this MappedPages object
@@ -1105,8 +1117,8 @@ impl Drop for MappedHugePages {
 
         let mut mapper = Mapper::from_current();
         if mapper.target_p4 != self.page_table_p4 {
-            error!("BUG: MappedPages::drop(): {:?}\n    current P4 {:?} must equal original P4 {:?}, \
-                cannot unmap MappedPages from a different page table than they were originally mapped to!",
+            error!("BUG: MappedHugePages::drop(): {:?}\n    current P4 {:?} must equal original P4 {:?}, \
+                cannot unmap MappedHugePages from a different page table than they were originally mapped to!",
                 self, get_current_p4(), self.page_table_p4
             );
             return;
