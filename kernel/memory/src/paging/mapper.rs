@@ -955,7 +955,7 @@ impl MappedHugePages {
     pub fn as_type<T: FromBytes>(&self, offset: usize) -> Result<&T, &'static str> {
         let size = mem::size_of::<T>();
         if false {
-            debug!("MappedPages::as_type(): requested type {} with size {} at offset {}, MappedPages size {}!",
+            debug!("MappedHugePages::as_type(): requested type {} with size {} at offset {}, MappedHugePages size {}!",
                 core::any::type_name::<T>(),
                 size, offset, self.size_in_bytes()
             );
@@ -964,11 +964,11 @@ impl MappedHugePages {
         // check that size of the type T fits within the size of the mapping
         let end = offset + size;
         if end > self.size_in_bytes() {
-            error!("MappedPages::as_type(): requested type {} with size {} at offset {}, which is too large for MappedPages of size {}!",
+            error!("MappedHugePages::as_type(): requested type {} with size {} at offset {}, which is too large for MappedPages of size {}!",
                 core::any::type_name::<T>(),
                 size, offset, self.size_in_bytes()
             );
-            return Err("requested type and offset would not fit within the MappedPages bounds");
+            return Err("requested type and offset would not fit within the MappedHugePages bounds");
         }
 
         // SAFE: we guarantee the size and lifetime are within that of this MappedHugePages object
@@ -986,7 +986,7 @@ impl MappedHugePages {
     pub fn as_type_mut<T: FromBytes>(&mut self, offset: usize) -> Result<&mut T, &'static str> {
         let size = mem::size_of::<T>();
         if false {
-            debug!("MappedPages::as_type_mut(): requested type {} with size {} at offset {}, MappedPages size {}!",
+            debug!("MappedHugePages::as_type_mut(): requested type {} with size {} at offset {}, MappedHugePages size {}!",
                 core::any::type_name::<T>(),
                 size, offset, self.size_in_bytes()
             );
@@ -994,24 +994,24 @@ impl MappedHugePages {
 
         // check flags to make sure mutability is allowed (otherwise a page fault would occur on a write)
         if !self.flags.is_writable() {
-            error!("MappedPages::as_type_mut(): requested type {} with size {} at offset {}, but MappedPages weren't writable (flags: {:?})",
+            error!("MappedHugePages::as_type_mut(): requested type {} with size {} at offset {}, but MappedHugePages weren't writable (flags: {:?})",
                 core::any::type_name::<T>(),
                 size, offset, self.flags
             );
-            return Err("as_type_mut(): MappedPages were not writable");
+            return Err("as_type_mut(): MappedHugePages were not writable");
         }
         
         // check that size of type T fits within the size of the mapping
         let end = offset + size;
         if end > self.size_in_bytes() {
-            error!("MappedPages::as_type_mut(): requested type {} with size {} at offset {}, which is too large for MappedPages of size {}!",
+            error!("MappedHugePages::as_type_mut(): requested type {} with size {} at offset {}, which is too large for MappedPages of size {}!",
                 core::any::type_name::<T>(),
                 size, offset, self.size_in_bytes()
             );
-            return Err("requested type and offset would not fit within the MappedPages bounds");
+            return Err("requested type and offset would not fit within the MappedHugePages bounds");
         }
 
-        // SAFE: we guarantee the size and lifetime are within that of this MappedPages object
+        // SAFE: we guarantee the size and lifetime are within that of this MappedHugePages object
         let t: &mut T = unsafe {
             &mut *((self.pages.start_address().value() + offset) as *mut T)
         };
