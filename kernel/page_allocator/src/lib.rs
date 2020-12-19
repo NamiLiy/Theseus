@@ -180,10 +180,8 @@ impl AllocatedPages {
 	}
 }
 
+/// Resembles the AllocatedHugePages struct
 /// Represents a range of allocated `VirtualAddress`es, specified in `HugePage`s. 
-/// This object represents ownership of the allocated virtual pages;
-/// The size of page is embedded within the pages structure
-/// if this object falls out of scope, its allocated pages will be auto-deallocated upon drop. 
 pub struct AllocatedHugePages {
 	pages: HugePageRange,
 }
@@ -201,8 +199,7 @@ impl fmt::Debug for AllocatedHugePages {
 }
 
 impl AllocatedHugePages {
-	/// Returns an empty AllocatedHugePages object that performs no page allocation. 
-    /// Can be used as a placeholder, but will not permit any real usage. 
+	/// Similar to AllocatedPages, Returns an empty AllocatedHugePages object that performs no huge page allocation. 
     pub const fn empty(page_size: HugePageSize) -> AllocatedHugePages {
         AllocatedHugePages {
 			pages: HugePageRange::empty(page_size)
@@ -227,32 +224,24 @@ impl AllocatedHugePages {
 		*(&self.pages.page_size())
 	}
 
-	/// Merges the given `AllocatedPages` object `ap` into this `AllocatedPages` object (`self`).
-	/// This is just for convenience and usability purposes, it performs no allocation or remapping.
-    ///
-	/// The `ap` must be virtually contiguous and come immediately after `self`,
-	/// that is, `self.end` must equal `ap.start`. 
-	/// If this condition is met, `self` is modified and `Ok(())` is returned,
-	/// otherwise `Err(ap)` is returned.
+	/// Merges the given `AllocatedHugePages` object `ap` into this `AllocatedHugePages` object (`self`).
+	/// Similar to the merge function within the `AllocatedPages` object
 	pub fn merge(&mut self, ap: AllocatedHugePages) -> Result<(), AllocatedHugePages> {
 		// make sure the pages are contiguous
 		if *ap.start() != (*self.end() + 1) {
 			return Err(ap);
 		}
 		self.pages = HugePageRange::new(*self.start(), *ap.end());
-		// ensure the now-merged AllocatedPages doesn't run its drop handler and free its pages.
+		// ensure the now-merged AllocatedHugePages doesn't run its drop handler and free its pages.
 		core::mem::forget(ap); 
 		Ok(())
 	}
 
-	/// Splits this `AllocatedPages` into two separate `AllocatedPages` objects:
+	/// Splits this `AllocatedHugePages` into two separate `AllocatedHugePages` objects:
 	/// * `[beginning : at_page - 1]`
 	/// * `[at_page : end]`
 	/// 
-	/// Depending on the size of this `AllocatedPages`, either one of the 
-	/// returned `AllocatedPages` objects may be empty. 
-	/// 
-	/// Returns `None` if `at_page` is not within the bounds of this `AllocatedPages`.
+	/// Similar to the split function within the `AllocatedPages` object
 	pub fn split(self, at_page: HugePage) -> Option<(AllocatedHugePages, AllocatedHugePages)> {
 		let end_of_first = at_page - 1;
 		if at_page > *self.pages.start() && end_of_first <= *self.pages.end() {
@@ -617,6 +606,7 @@ pub fn allocate_pages_at(vaddr: VirtualAddress, num_pages: usize) -> Result<Allo
 		.map(|(ap, _action)| ap)
 }
 
+/// Similarily, allocate huge pages starting at (inclusive of) the page containing the given `VirtualAddress`.
 pub fn allocate_huge_pages(num_pages: usize, page_size : HugePageSize) -> Option<AllocatedHugePages> {
 	allocate_huge_pages_deferred(None, num_pages, page_size)
 		.map(|(ap, _action)| ap)
