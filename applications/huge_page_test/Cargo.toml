@@ -17,6 +17,9 @@ path = "../../kernel/terminal_print"
 [dependencies.memory]
 path = "../../kernel/memory"
 
+# [dependencies.page_allocator]
+# path = "../../kernel/page_allocator"
+
 [dependencies.memory_structs]
 path = "../../kernel/memory_structs"
 

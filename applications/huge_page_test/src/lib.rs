@@ -9,7 +9,8 @@
 extern crate alloc;
 extern crate memory;
 extern crate memory_structs;
-// #[macro_use] extern crate log;
+// extern crate page_allocator;
+#[macro_use] extern crate log;
 #[macro_use] extern crate terminal_print;
 
 use alloc::vec::Vec;
@@ -20,10 +21,13 @@ use memory_structs::HugePageSize;
 pub fn main(_args: Vec<String>) -> isize {
     println!("Testing huge page mappings");
 
-    let bytes = 2*1024*1024;
+    // page_allocator::dump_page_allocator_state();
+
+    let bytes = 4*1024*1024;
     //create normal mapping
     match create_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE){
-        Ok(_m) => {
+        Ok(m) => {
+            debug!("{:?}", m);
             println!("Normal mapping Successful");
         },
         Err(e) => {
@@ -35,7 +39,8 @@ pub fn main(_args: Vec<String>) -> isize {
     match HugePageSize::new(2*1024*1024) {
         Ok(page_size) => {
             match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
-                Ok(_m) => {
+                Ok(m) => {
+                    debug!("{:?}", m);
                     println!("2M mapping successful");
                 },
                 Err(e) => {
@@ -52,7 +57,8 @@ pub fn main(_args: Vec<String>) -> isize {
     match HugePageSize::new(1024*1024*1024) {
         Ok(page_size) => {
             match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
-                Ok(_m) => {
+                Ok(m) => {
+                    debug!("{:?}", m);
                     println!("1G mapping successful");
                 },
                 Err(e) => {

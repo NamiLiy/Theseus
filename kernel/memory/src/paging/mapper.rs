@@ -213,11 +213,12 @@ impl Mapper {
     {
 
         let mut top_level_flags = flags.clone();
+        let mut modified_flags = flags.clone();
         top_level_flags.set(EntryFlags::NO_EXECUTE, false);
         // top_level_flags.set(EntryFlags::WRITABLE, true); // is the same true for the WRITABLE bit?
 
         for page in pages.deref().clone() {
-
+            // debug!("T1 {} ", pages.page_size().huge_page_ratio());
             // Allocate a set of contigious physical frames corresponding to huge page size
             let frame_set = allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_allocated_huge_pages(): couldn't allocate new frame, out of memory!")?;
 
@@ -235,10 +236,11 @@ impl Mapper {
                 } 
 
                 p1[page.p1_index()].set(frame_set.start_frame(), flags | EntryFlags::PRESENT);
+                // debug!("4K");
             }
 
             // 2M pages
-            else if pages.page_size().huge_page_ratio() == 9 {
+            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
                 let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
 
@@ -251,10 +253,12 @@ impl Mapper {
 
                 p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
                 
+                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+                // debug!("2M");
             }
 
             // 1G pages
-            else if pages.page_size().huge_page_ratio() == 18 {
+            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
 
                 if !p3[page.p3_index()].is_unused() {
@@ -265,13 +269,16 @@ impl Mapper {
                 } 
 
                 p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+
+                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+                // debug!("1G");
             }
         }
 
         Ok(MappedHugePages {
             page_table_p4: self.target_p4.clone(),
             pages,
-            flags,
+            flags: modified_flags,
         })
     }
 }
@@ -868,7 +875,7 @@ impl MappedHugePages {
             }
             
             // 2M
-            if self.pages.page_size().huge_page_ratio() == 9 {
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
                 let p2 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
                     .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -879,7 +886,7 @@ impl MappedHugePages {
             }
 
             // 1G
-            if self.pages.page_size().huge_page_ratio() == 18 {
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
                 let p3 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
                     .ok_or("mapping code does not support huge pages")?;
@@ -918,7 +925,7 @@ impl MappedHugePages {
             }
             
             // 2M page
-            if self.pages.page_size().huge_page_ratio() == 9 {
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
                 let p2 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -929,7 +936,7 @@ impl MappedHugePages {
             }
 
             // 1G page
-            if self.pages.page_size().huge_page_ratio() == 18 {
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
                 let p3 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .ok_or("mapping code does not support huge pages")?;
