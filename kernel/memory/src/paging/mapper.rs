@@ -768,13 +768,7 @@ impl Drop for MappedPages {
 }
 
 /// Represents a contiguous range of virtual memory pages that are currently mapped. 
-/// A `MappedPages` object can only have a single range of contiguous pages, not multiple disjoint ranges.
-/// This does not guarantee that its pages are mapped to frames that are contiguous in physical memory.
-/// 
-/// This object also represents ownership of those pages; if this object falls out of scope,
-/// it will be dropped, and the pages will be unmapped and then also de-allocated. 
-/// Thus, it ensures memory safety by guaranteeing that this object must be held 
-/// in order to access data stored in these mapped pages, much like a guard type.
+/// `MappedHugePages` here is highly resembly the original MappedPages struct.
 #[derive(Debug)]
 pub struct MappedHugePages {
     /// The Frame containing the top-level P4 page table that this MappedPages was originally mapped into. 
@@ -792,7 +786,7 @@ impl Deref for MappedHugePages {
 }
 
 impl MappedHugePages {
-    /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
+    /// Returns an empty MappedHugePages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
     pub fn empty(page_size: HugePageSize) -> MappedHugePages {
         MappedHugePages {
@@ -802,7 +796,7 @@ impl MappedHugePages {
         }
     }
 
-    /// Returns the flags that describe this `MappedPages` page table permissions.
+    /// Returns the flags that describe this `MappedHugePages` page table permissions.
     pub fn flags(&self) -> EntryFlags {
         self.flags
     }
@@ -813,24 +807,16 @@ impl MappedHugePages {
     }
 
 
-    /// Creates a deep copy of this `MappedPages` memory region,
-    /// by duplicating not only the virtual memory mapping
-    /// but also the underlying physical memory frames. 
-    /// 
-    /// The caller can optionally specify new flags for the duplicated mapping,
-    /// otherwise, the same flags as the existing `MappedPages` will be used. 
-    /// This is useful for when you want to modify contents in the new pages,
-    /// since it avoids extra `remap()` operations.
-    /// 
-    /// Returns a new `MappedPages` object with the same in-memory contents
-    /// as this object, but at a completely new memory region.
+    /// Creates a deep copy of this `MappedHugePages` memory region,
+    /// This is also highly resemble the original deep copy function which consumes MappedPages,
+    /// except that the mapper, allocator have been changed to use huge pages
     pub fn deep_copy<A: FrameAllocator>(&self, new_flags: Option<EntryFlags>, active_table_mapper: &mut Mapper, allocator: &mut A) -> Result<MappedHugePages, &'static str> {
         let size_in_pages = self.size_in_pages();
 
         use paging::allocate_huge_pages;
         let new_pages = allocate_huge_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
 
-        // we must temporarily map the new pages as Writable, since we're about to copy data into them
+        // Need to map the new huge pages as Writable here before copying the data into them
         let new_flags = new_flags.unwrap_or(self.flags);
         let needs_remapping = new_flags.is_writable(); 
         let mut new_mapped_huge_pages = active_table_mapper.map_allocated_huge_pages(
@@ -839,8 +825,8 @@ impl MappedHugePages {
             allocator
         )?;
 
-        // perform the actual copy of in-memory content
-        // TODO: there is probably a better way to do this, e.g., `rep stosq/movsq` or something
+        // Copying the content within the memory
+        // TODO: can use some optimizations to improve the copy performance
         {
             type PageContent = [u8; PAGE_SIZE];
             let source: &[PageContent] = self.as_slice(0, size_in_pages)?;
@@ -856,7 +842,7 @@ impl MappedHugePages {
     }
 
     
-    /// Change the permissions (`new_flags`) of this `MappedPages`'s page table entries.
+    /// modify the permission bits (`new_flags`) of this `MappedHugePages`'s page table entries.
     pub fn remap(&mut self, active_table_mapper: &mut Mapper, new_flags: EntryFlags) -> Result<(), &'static str> {
         if self.size_in_pages() == 0 { return Ok(()); }
 
@@ -899,19 +885,13 @@ impl MappedHugePages {
 
             tlb_flush_virt_addr(page.start_address());
         }
-        
-        // This is also wrong
-        // if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-        //     func(self.pages.deref().clone());
-        // }
 
         self.flags = new_flags;
         Ok(())
     }   
 
 
-    /// Remove the virtual memory mapping for the given `Page`s.
-    /// This should NOT be public because it should only be invoked when a `MappedPages` object is dropped.
+    /// ummap the virtual memory mapping for the given `HugePage`s.
     fn unmap<A>(&mut self, active_table_mapper: &mut Mapper, _allocator_ref: &MutexIrqSafe<A>) -> Result<(), &'static str> 
         where A: FrameAllocator
     {
@@ -925,7 +905,7 @@ impl MappedHugePages {
                 .and_then(|p2| p2.next_table_mut(page.p2_index()))
                 .ok_or("mapping code does not support huge pages")?;
 
-                let _frame = p1[page.p1_index()].pointed_frame().ok_or("unmap(): page not mapped")?;
+                let _frame = p1[page.p1_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
                 p1[page.p1_index()].set_unused();
             }
             
@@ -935,7 +915,7 @@ impl MappedHugePages {
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
                 .ok_or("mapping code does not support huge pages")?;
 
-                let _frame = p2[page.p2_index()].pointed_frame().ok_or("unmap(): page not mapped")?;
+                let _frame = p2[page.p2_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
                 p2[page.p2_index()].set_unused();
             }
 
@@ -944,54 +924,24 @@ impl MappedHugePages {
                 .next_table_mut(page.p4_index())
                 .ok_or("mapping code does not support huge pages")?;
 
-                let _frame = p3[page.p3_index()].pointed_frame().ok_or("unmap(): page not mapped")?;
+                let _frame = p3[page.p3_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
                 p3[page.p3_index()].set_unused();
             }
-            
-            
-            
 
             tlb_flush_virt_addr(page.start_address());
             
             // TODO free p(1,2,3) table if empty
             // _allocator_ref.lock().deallocate_frame(frame);
         }
-    
-        // This is wrong but temporary disabling this
-        // #[cfg(not(bm_map))]
-        // {
-        //     if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-        //         func(self.pages.deref().clone());
-        //     }
-        // }
 
         Ok(())
     }
 
 
-    /// Reinterprets this `MappedPages`'s underlying memory region as a struct of the given type `T`,
+    /// Reinterprets this `MappedHugePages`'s underlying memory region as a struct of the given type `T`,
     /// i.e., overlays a struct on top of this mapped memory region. 
     /// 
-    /// # Requirements
-    /// The type `T` must implement the `FromBytes` trait, which is similar to the requirements 
-    /// of a "plain old data" type, in that it cannot contain Rust references (`&` or `&mut`).
-    /// This makes sense because there is no valid way to reinterpret a region of untyped memory 
-    /// as a Rust reference. 
-    /// In addition, if we did permit that, a Rust reference created from unchecked memory contents
-    /// could never be valid, safe, or sound, as it could allow random memory access 
-    /// (just like with an arbitrary pointer dereference) that could break isolation.
-    /// 
-    /// To satisfy this condition, you can use `#[derive(FromBytes)]` on your struct type `T`,
-    /// which will only compile correctly if the struct can be validly constructed 
-    /// from "untyped" memory, i.e., an array of bytes.
-    /// 
-    /// # Arguments
-    /// `offset`: the offset into the memory region at which the struct is located (where it should start).
-    /// 
-    /// Returns a reference to the new struct (`&T`) that is formed from the underlying memory region,
-    /// with a lifetime dependent upon the lifetime of this `MappedPages` object.
-    /// This ensures safety by guaranteeing that the returned struct reference 
-    /// cannot be used after this `MappedPages` object is dropped and unmapped.
+    /// Same as the as_type function for the original page size
     pub fn as_type<T: FromBytes>(&self, offset: usize) -> Result<&T, &'static str> {
         let size = mem::size_of::<T>();
         if false {
@@ -1011,7 +961,7 @@ impl MappedHugePages {
             return Err("requested type and offset would not fit within the MappedPages bounds");
         }
 
-        // SAFE: we guarantee the size and lifetime are within that of this MappedPages object
+        // SAFE: we guarantee the size and lifetime are within that of this MappedHugePages object
         let t: &T = unsafe { 
             &*((self.pages.start_address().value() + offset) as *const T)
         };
@@ -1064,15 +1014,7 @@ impl MappedHugePages {
     /// 
     /// It has similar type requirements as the [`as_type()`](#method.as_type) method.
     /// 
-    /// # Arguments
-    /// * `byte_offset`: the offset (in number of bytes) into the memory region at which the slice should start.
-    /// * `length`: the length of the slice, i.e., the number of `T` elements in the slice. 
-    ///   Thus, the slice will go from `offset` to `offset` + (sizeof(`T`) * `length`).
-    /// 
-    /// Returns a reference to the new slice that is formed from the underlying memory region,
-    /// with a lifetime dependent upon the lifetime of this `MappedPages` object.
-    /// This ensures safety by guaranteeing that the returned slice 
-    /// cannot be used after this `MappedPages` object is dropped and unmapped.
+    /// Same as the as_slice function for the original page size
     pub fn as_slice<T: FromBytes>(&self, byte_offset: usize, length: usize) -> Result<&[T], &'static str> {
         let size_in_bytes = mem::size_of::<T>() * length;
         if false {
@@ -1142,9 +1084,9 @@ impl MappedHugePages {
 }
 
 
-/// A convenience function that exposes the `MappedPages::unmap` function
-/// (which is normally hidden/non-public because it's typically called from the Drop handler)
-/// for usage from testing/benchmark code for the memory mapping evaluation.
+/// Create this convenience function to exposes the `MappedHugePages::unmap` function
+/// for testing /benchmark code. 
+/// unmap fucntion is usually called from drop handler
 #[cfg(mapper_spillful)]
 pub fn mapped_huge_pages_unmap<A: FrameAllocator>(
     mapped_pages: &mut MappedHugePages,
@@ -1154,7 +1096,8 @@ pub fn mapped_huge_pages_unmap<A: FrameAllocator>(
     mapped_huge_pages.unmap(mapper, allocator_ref)
 }
 
-
+// drop handler of `MappedHugePages` object.
+// It will call the unmap functon for `MappedHugePages`
 impl Drop for MappedHugePages {
     fn drop(&mut self) {
         if self.size_in_pages() == 0 { return; }
