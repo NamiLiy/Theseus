@@ -1,7 +1,7 @@
 [package]
 name = "huge_page_test"
 version = "0.1.0"
-authors = ["CPSC626"]
+authors = ["Namitha Liyanage and Bowen Huang"]
 build = "../../build.rs"
 
 [dependencies]

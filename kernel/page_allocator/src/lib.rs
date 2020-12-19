@@ -84,7 +84,8 @@ impl Chunk {
 		}
 	}
 
-	/// Return a chunk as a AllocatedHugePages object
+	/// Return a chunk as a AllocatedHugePages object.
+	/// Returns an error if the chunk is not properly alligned
 	pub fn as_allocated_huge_pages(&self, page_size:HugePageSize) -> Result<AllocatedHugePages, &'static str> {
 		AllocatedHugePages::from_normal_pages(self.pages.clone(), page_size)
 	}
@@ -180,7 +181,7 @@ impl AllocatedPages {
 	}
 }
 
-/// Resembles the AllocatedHugePages struct
+/// Resembles the AllocatedPages struct.
 /// Represents a range of allocated `VirtualAddress`es, specified in `HugePage`s. 
 pub struct AllocatedHugePages {
 	pages: HugePageRange,
@@ -207,7 +208,8 @@ impl AllocatedHugePages {
 	}
 
 	/// This function create AllocatedHugePages from a given normal page set.
-	/// The function checks whether normal pages are actually aligned in start and end
+	/// The function checks whether normal pages are actually aligned in start and end, and 
+	/// returns an error if not so
 	pub fn from_normal_pages(pages: PageRange, page_size: HugePageSize) -> Result<AllocatedHugePages,  &'static str>{
 		let huge_page_range = HugePageRange::from_virt_addr(pages.start_address(),pages.size_in_bytes(),page_size);
 		if pages.start_address() != huge_page_range.start_address() ||
@@ -256,14 +258,6 @@ impl AllocatedHugePages {
 		}
 	}
 }
-
-// impl Drop for AllocatedPages {
-//     fn drop(&mut self) {
-// 		trace!("page_allocator: deallocate_pages is not yet implemented, trying to dealloc: {:?}", _pages);
-// 		unimplemented!();
-// 		Ok(())
-//     }
-// }
 
 
 /// A convenience wrapper that abstracts either a `LinkedList<T>` or a primitive array `[T; N]`.
@@ -606,7 +600,7 @@ pub fn allocate_pages_at(vaddr: VirtualAddress, num_pages: usize) -> Result<Allo
 		.map(|(ap, _action)| ap)
 }
 
-/// Similarily, allocate huge pages starting at (inclusive of) the page containing the given `VirtualAddress`.
+/// Allocate hugepages by number of pages 
 pub fn allocate_huge_pages(num_pages: usize, page_size : HugePageSize) -> Option<AllocatedHugePages> {
 	allocate_huge_pages_deferred(None, num_pages, page_size)
 		.map(|(ap, _action)| ap)
@@ -633,7 +627,7 @@ pub fn allocate_huge_pages_by_bytes_deferred(
 		num_bytes
     };
     
-    // The num_pages is in huge_page numbers
+    // The num_pages is in huge_pages
 	let num_pages = (actual_num_bytes + page_size.value() - 1) / page_size.value();
 
 	allocate_huge_pages_deferred(requested_vaddr, num_pages, page_size)
@@ -641,6 +635,7 @@ pub fn allocate_huge_pages_by_bytes_deferred(
 
 /// Perform the actual allocation of pages and return AllocatedHugePages
 /// Size of each page is embedded within AllocatedHugePages
+/// Implementation copied and modified from AllocatedPages
 pub fn allocate_huge_pages_deferred(
 	requested_vaddr: Option<VirtualAddress>,
 	num_pages: usize,
@@ -652,7 +647,7 @@ pub fn allocate_huge_pages_deferred(
 		return Err("cannot allocate zero pages");
 	}
 
-	// The desired start page is aligned to a huge page boundary
+	// The desired start page is a normal page aligned to the huge page boundary
 	let desired_start_page = requested_vaddr.map(|vaddr| HugePage::containing_address(vaddr, page_size).corresponding_normal_page());
 
     // Iterate through the list of free pages looking for a suitable chunk

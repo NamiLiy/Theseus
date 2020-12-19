@@ -1,3 +1,6 @@
+//! A very simple application to test huge page mappings of various sizes.
+//! Creates mappings of 4KB 2MB and 1GB pages providing architecture support
+
 #![no_std]
 // #![feature(plugin)]
 // #![plugin(application_main_fn)]
