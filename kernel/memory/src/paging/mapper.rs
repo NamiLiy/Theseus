@@ -1125,13 +1125,13 @@ impl Drop for MappedHugePages {
         let frame_allocator_ref = match get_frame_allocator_ref() {
             Some(fa) => fa,
             _ => {
-                error!("MappedPages::drop(): couldn't get frame allocator!");
+                error!("MappedHugePages::drop(): couldn't get frame allocator!");
                 return;
             }
         };
         
         if let Err(e) = self.unmap(&mut mapper, &frame_allocator_ref) {
-            error!("MappedPages::drop(): failed to unmap, error: {:?}", e);
+            error!("MappedHugePages::drop(): failed to unmap, error: {:?}", e);
         }
 
         // Note that the AllocatedHugePages will automatically be dropped here too,
