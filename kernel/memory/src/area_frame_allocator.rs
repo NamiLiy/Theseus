@@ -10,7 +10,6 @@
 use super::{Frame, FrameAllocator, FrameRange, PhysicalAddress, PhysicalMemoryArea};
 use alloc::vec::Vec;
 use kernel_config::memory::PAGE_SIZE;
-pub use memory_structs::*;
 
 
 /// A stand-in for a Union
@@ -252,7 +251,8 @@ impl FrameAllocator for AreaFrameAllocator {
         }
     }
 
-    /// Allocate a set of frames aligned at a boundary
+    /// Allocate a set of frames aligned at a boundary.
+    /// This is needed for huge page support as huge pages must align at huge_page_size boundaries
     /// Allign is provided as a multiplication of PAGE_SIZE
     fn allocate_alligned_frames(&mut self, num_frames: usize, allign: usize) -> Option<FrameRange> {
 
@@ -260,6 +260,8 @@ impl FrameAllocator for AreaFrameAllocator {
 
         if let Some(first_frame) = self.allocate_frame() {
             let first_frame_paddr = first_frame.start_address();
+
+            // If the first frame is not on a boundary we request frames again
             if first_frame_paddr.value() % (allign*PAGE_SIZE) != 0 {
                 return self.allocate_alligned_frames(num_frames, allign);
             }
@@ -277,17 +279,16 @@ impl FrameAllocator for AreaFrameAllocator {
                     }
                 }
                 else {
-                    error!("Error: AreaFrameAllocator::allocate_frames(): couldn't allocate {} contiguous frames, out of memory!", num_frames);
+                    error!("Error: AreaFrameAllocator::allocate_alligned_frames(): couldn't allocate {} contiguous frames for a huge page, out of memory!", num_frames);
                     return None;
                 }
             }
 
-            // check for the frames contiguity for those allocated frames
             let last_frame = first_frame + (num_frames - 1); // -1 for inclusive bound. Parenthesis needed to avoid overflow.
             return Some(FrameRange::new(first_frame, last_frame));
         }
 
-        error!("Error: AreaFrameAllocator::allocate_frames(): couldn't allocate {} contiguous frames, out of memory!", num_frames);
+        error!("Error: AreaFrameAllocator::allocate_alligned_frames(): couldn't allocate {} contiguous frames for a huge page, out of memory!", num_frames);
         None
     }
 
