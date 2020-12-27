@@ -264,6 +264,7 @@ impl PhysicalMemoryArea {
 
 /// A structure indicating a page size the CPU supports
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct PageSize(usize);
 pub struct HugePageSize(usize);
 
 impl HugePageSize {
@@ -322,6 +323,64 @@ impl HugePageSize {
     }
 
     
+}
+
+impl PageSize {
+    /// Creates a new `PageSize`,
+    /// checking that the CPU actually support the size.
+    pub fn new(page_size_in_bytes: usize) -> Result<PageSize, &'static str> {
+
+        const KB_4: usize =         4*1024;
+        const MB_2: usize =    2*1024*1024;
+        const GB_1: usize = 1024*1024*1024;
+
+        match page_size_in_bytes {
+            // 4K pages
+            KB_4 => Ok(PageSize(page_size_in_bytes)),
+
+            // 2M pages
+            // if CR0.PG = 1, CR4.PAE = 1, and IA32_EFER.LME = 1, IA-32e paging is used
+            // IA-32e supports 2M paging
+            MB_2 => Ok(PageSize(page_size_in_bytes)),
+
+            // 1G pages
+            // If CPUID.80000001H:EDX.Page1GB [bit 26] = 1,
+            GB_1 => {
+                let res = cpuid!(0x80000001);
+                if (res.edx >> 26) & 1  == 1 {
+                    Ok(PageSize(page_size_in_bytes))
+                } else {
+                    Err("The architecture does not support 1GB page size")
+                }
+            },
+
+            _ => {
+                Err("The architecture does not support the requested page size")
+            },
+        }
+        
+    }
+
+    // ratio of huge_page_size_to_standard_page_size
+    pub fn huge_page_ratio(&self) -> usize {
+        // self.0 / PAGE_SIZE
+        const KB_4: usize =         4*1024;
+        const MB_2: usize = 2*1024*1024;
+        const GB_1: usize = 1024*1024*1024;
+        
+        match self.0 {
+            KB_4 => 1,
+            MB_2 => 512,
+            GB_1 => 512*512,
+            _ => 1,
+        }
+    }
+
+    // Convenience function to get the actual size
+    #[inline]
+    pub const fn value(&self) -> usize {
+        self.0
+    } 
 }
 
 impl Default for HugePageSize {
@@ -536,7 +595,8 @@ impl Page {
         }
     }
 
-    pub const fn containing_hugepage_address(virt_addr: VirtualAddress, page_size : HugePageSize) -> Page {
+    // TODO_BOWEN : need to unify this function with the one above
+    pub const fn containing_huge_page_address(virt_addr: VirtualAddress, page_size : PageSize) -> Page {
         Page {
             number: virt_addr.value() / page_size.value(),
         }
@@ -548,9 +608,22 @@ impl Page {
         VirtualAddress::new_canonical(self.number * PAGE_SIZE)
     }
 
-    pub const fn hugepage_start_address(&self) -> VirtualAddress {
+    // TODO_BOWEN : need to unify this function with the one above
+    pub const fn huage_page_start_address(&self) -> VirtualAddress {
         // Cannot create VirtualAddress directly because the field is private
-        VirtualAddress::new_canonical(self.number * PAGE_SIZE)
+        VirtualAddress::new_canonical(self.number * self.page_size.value())
+    }
+
+    // TODO_BOWEN : don't know what to do with it
+    /// Convenience function to get the number of normal page at the first location of huge frame
+    pub fn corresponding_normal_page(&self) -> Page {
+        Page::containing_address(self.start_address())
+    }
+
+    // TODO_BOWEN : don't know what to do with it
+    /// Convenience function to get the hugepage covering a normal page
+    pub fn from_normal_page(page : Page, page_size: PageSize) -> Page {
+        Page::containing_address(page.start_address(), page_size)
     }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
