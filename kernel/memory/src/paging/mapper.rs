@@ -366,10 +366,11 @@ impl Deref for MappedPages {
 impl MappedPages {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
-    pub fn empty() -> MappedPages {
+    /// TODO_BOWEN : need to make the parameter optional here
+    pub fn empty(page_size: PageSize) -> MappedPages {
         MappedPages {
             page_table_p4: get_current_p4(),
-            pages: AllocatedPages::empty(),
+            pages: AllocatedPages::empty(page_size),
             flags: Default::default(),
         }
     }
@@ -396,6 +397,12 @@ impl MappedPages {
     /// # Note
     /// No remapping actions or page reallocations will occur on either a failure or a success.
     pub fn merge(&mut self, mut mp: MappedPages) -> Result<(), (&'static str, MappedPages)> {
+        
+        // we didn't implement merge function for huge page
+        if self.pages.page_size().huge_page_ratio() > 1 {
+            Err(("Merge not yet implemented for huge pages", mp))
+        }
+        
         if mp.page_table_p4 != self.page_table_p4 {
             error!("MappedPages::merge(): mappings weren't mapped using the same page table: {:?} vs. {:?}",
                 self.page_table_p4, mp.page_table_p4);
@@ -409,7 +416,7 @@ impl MappedPages {
 
         // Attempt to merge the page ranges together, which will fail if they're not contiguous.
         // First, take ownership of the AllocatedPages inside of the `mp` argument.
-        let second_alloc_pages_owned = core::mem::replace(&mut mp.pages, AllocatedPages::empty());
+        let second_alloc_pages_owned = core::mem::replace(&mut mp.pages, AllocatedPages::empty(self.pages.page_size()));
         if let Err(orig) = self.pages.merge(second_alloc_pages_owned) {
             // Upon error, restore the `mp.pages` AllocatedPages that we took ownership of.
             mp.pages = orig;
@@ -440,7 +447,7 @@ impl MappedPages {
         let size_in_pages = self.size_in_pages();
 
         use paging::allocate_pages;
-        let new_pages = allocate_pages(size_in_pages).ok_or_else(|| "Couldn't allocate_pages()")?;
+        let new_pages = allocate_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
 
         // we must temporarily map the new pages as Writable, since we're about to copy data into them
         let new_flags = new_flags.unwrap_or(self.flags);
@@ -453,6 +460,7 @@ impl MappedPages {
 
         // perform the actual copy of in-memory content
         // TODO: there is probably a better way to do this, e.g., `rep stosq/movsq` or something
+        // TODO_BOWEN : do we need to change the PAGE_SIZE here ?
         {
             type PageContent = [u8; PAGE_SIZE];
             let source: &[PageContent] = self.as_slice(0, size_in_pages)?;
@@ -478,20 +486,47 @@ impl MappedPages {
         }
 
         for page in self.pages.clone() {
-            let p1 = active_table_mapper.p4_mut()
-                .next_table_mut(page.p4_index())
-                .and_then(|p3| p3.next_table_mut(page.p3_index()))
-                .and_then(|p2| p2.next_table_mut(page.p2_index()))
-                .ok_or("mapping code does not support huge pages")?;
-            
-            let frame = p1[page.p1_index()].pointed_frame().ok_or("remap(): page not mapped")?;
-            p1[page.p1_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            // 4K
+            if self.pages.page_size().huge_page_ratio() == 1 {
+                let p1 = active_table_mapper.p4_mut()
+                    .next_table_mut(page.p4_index())
+                    .and_then(|p3| p3.next_table_mut(page.p3_index()))
+                    .and_then(|p2| p2.next_table_mut(page.p2_index()))
+                    .ok_or("mapping code does not support huge pages")?;
+                
+                let frame = p1[page.p1_index()].pointed_frame().ok_or("remap(): page not mapped")?;
+                p1[page.p1_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            }
+
+            // 2M
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+                let p2 = active_table_mapper.p4_mut()
+                    .next_table_mut(page.p4_index())
+                    .and_then(|p3| p3.next_table_mut(page.p3_index()))
+                    .ok_or("mapping code does not support huge pages")?;
+                
+                let frame = p2[page.p2_index()].pointed_frame().ok_or("remap(): page not mapped")?;
+                p2[page.p2_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            }
+
+            // 1G
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+                let p3 = active_table_mapper.p4_mut()
+                    .next_table_mut(page.p4_index())
+                    .ok_or("mapping code does not support huge pages")?;
+                
+                let frame = p3[page.p3_index()].pointed_frame().ok_or("remap(): page not mapped")?;
+                p3[page.p3_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            }
 
             tlb_flush_virt_addr(page.start_address());
         }
         
-        if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-            func(self.pages.deref().clone());
+        // TODO_BOWEN : MappedHugePages doesn't have the logic below, therefore adding a guard for 4K page here
+        if self.pages.page_size().huge_page_ratio() == 1 {
+            if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
+                func(self.pages.deref().clone());
+            }
         }
 
         self.flags = new_flags;
@@ -507,14 +542,39 @@ impl MappedPages {
         if self.size_in_pages() == 0 { return Ok(()); }
 
         for page in self.pages.clone() {            
-            let p1 = active_table_mapper.p4_mut()
+            
+            // 4K page
+            if self.pages.page_size().huge_page_ratio() == 1 {
+                let p1 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
                 .and_then(|p2| p2.next_table_mut(page.p2_index()))
                 .ok_or("mapping code does not support huge pages")?;
-            
-            let _frame = p1[page.p1_index()].pointed_frame().ok_or("unmap(): page not mapped")?;
-            p1[page.p1_index()].set_unused();
+
+                let _frame = p1[page.p1_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
+                p1[page.p1_index()].set_unused();
+            }
+
+            // 2M page
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+                let p2 = active_table_mapper.p4_mut()
+                .next_table_mut(page.p4_index())
+                .and_then(|p3| p3.next_table_mut(page.p3_index()))
+                .ok_or("mapping code does not support huge pages")?;
+
+                let _frame = p2[page.p2_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
+                p2[page.p2_index()].set_unused();
+            }
+
+            // 1G page
+            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+                let p3 = active_table_mapper.p4_mut()
+                .next_table_mut(page.p4_index())
+                .ok_or("mapping code does not support huge pages")?;
+
+                let _frame = p3[page.p3_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
+                p3[page.p3_index()].set_unused();
+            }
 
             tlb_flush_virt_addr(page.start_address());
             
@@ -522,10 +582,14 @@ impl MappedPages {
             // _allocator_ref.lock().deallocate_frame(frame);
         }
     
-        #[cfg(not(bm_map))]
+        // TODO_BOWEN : MappedHugePages doesn't have the logic below, therefore adding a guard for 4K page here
+        if self.pages.page_size().huge_page_ratio() == 1
         {
-            if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-                func(self.pages.deref().clone());
+            #[cfg(not(bm_map))]
+            {
+                if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
+                    func(self.pages.deref().clone());
+                }
             }
         }
 
@@ -740,7 +804,8 @@ impl MappedPages {
     /// ```
     /// Because Rust has lexical lifetimes, the `space` variable must have a lifetime at least as long as the  `print_func` variable,
     /// meaning that `space` must still be in scope in order for `print_func` to be invoked.
-    /// 
+    
+    /// TODO_BOWEN : MappedHugePages doesn't have the logic below
     #[doc(hidden)]
     pub fn as_func<'a, F>(&self, offset: usize, space: &'a mut usize) -> Result<&'a F, &'static str> {
         let size = mem::size_of::<F>();
