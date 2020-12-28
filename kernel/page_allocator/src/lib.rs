@@ -405,7 +405,8 @@ pub fn allocate_pages_deferred(
 		// or any chunk that is large enough, if no desired address was requested.
 		// Obviously, we cannot use any chunk that is already allocated. 
 
-		let potential_start_page = Page::containing_huge_page_address(c.pages.start_address() + page_size.value() - 1, page_size).corresponding_normal_page();
+		let potential_start_page_chunk = Page::containing_huge_page_address(c.pages.start_address() + page_size.value() - 1, page_size).corresponding_normal_page();
+		let potential_start_page = desired_start_page.unwrap_or(potential_start_page_chunk);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
 
 		let potential_end_page = potential_start_page + (num_pages*page_size.huge_page_ratio() - 1);
