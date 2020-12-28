@@ -330,10 +330,11 @@ impl PhysicalMemoryArea {
 //     } 
 // }
 
-pub trait PageType
+pub trait PageType: PartialOrd + Sized + Clone + Copy
 {
    fn page_size(&self) -> usize;
    fn max_page_number(&self) -> usize;
+   fn huge_page_ratio(&self) -> usize;
 }
 
 // impl Default for HugePageSize {
@@ -545,24 +546,17 @@ impl <A: PageType> fmt::Debug for Page<A> {
 
 impl<A: PageType> Page<A> {
     /// Returns the `Page` that contains the given `VirtualAddress`.
-    pub const fn containing_address(virt_addr: VirtualAddress, page_type: A) -> Page<A> {
+    pub fn containing_address(virt_addr: VirtualAddress, page_type: A) -> Page<A> {
         Page::<A> {
-            number: virt_addr.value() / PAGE_SIZE,
+            number: virt_addr.value() / page_type.page_size(),
             page_size: page_type,
         }
     }
 
-    pub const fn containing_huge_page_address(virt_addr: VirtualAddress, page_type : A) -> Page<A> {
-        Page::<A> {
-            number: virt_addr.value() / page_type.page_size(),
-            page_size : page_type
-        }
-    }
-
     /// Returns the `VirtualAddress` as the start of this `Page`.
-    pub const fn start_address(&self) -> VirtualAddress {
+    pub fn start_address(&self) -> VirtualAddress {
         // Cannot create VirtualAddress directly because the field is private
-        VirtualAddress::new_canonical(self.number * self.page_size.value())
+        VirtualAddress::new_canonical(self.number * self.page_size.page_size())
     }
 
     // /// Convenience function to get the number of normal page at the first location of huge frame
@@ -662,52 +656,52 @@ unsafe impl <A: PageType> Step for Page<A> {
 
 /// An inclusive range of `Page`s that are contiguous in virtual memory.
 #[derive(Clone)]
-pub struct PageRange(RangeInclusive<Page<dyn PageType>>);
+pub struct PageRange<A: PageType>(RangeInclusive<Page<A>>);
 
-impl <A: PageType> PageRange {
+impl <A: PageType> PageRange<A> {
     /// Creates a new range of `Page`s that spans from `start` to `end`,
     /// both inclusive bounds.
-    pub const fn new(start: Page<A>, end: Page<A>) -> PageRange {
+    pub const fn new(start: Page<A>, end: Page<A>) -> PageRange<A> {
         PageRange(RangeInclusive::new(start, end))
     }
 
     /// Creates a PageRange that will always yield `None`.
-    pub const fn empty(page_size: A) -> PageRange {
+    pub const fn empty(page_size: A) -> PageRange<A> {
         PageRange::new(Page { number: 1 , page_size: page_size}, Page { number: 0, page_size: page_size })
     }
 
     /// A convenience method for creating a new `PageRange`
     /// that spans all `Page`s from the given virtual address
     /// to an end bound based on the given size.
-    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: A) -> PageRange {
+    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: A) -> PageRange::<A> {
         assert!(size_in_bytes > 0);
-        let start_page = Page::containing_huge_page_address(starting_virt_addr, page_size);
+        let start_page = Page::containing_address(starting_virt_addr, page_size);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
-        let end_page = Page::containing_huge_page_address(starting_virt_addr + (size_in_bytes - 1), page_size);
+        let end_page = Page::containing_address(starting_virt_addr + (size_in_bytes - 1), page_size);
         PageRange::new(start_page, end_page)
     }
 
     /// Returns the `VirtualAddress` of the starting `Page`.
-    pub const fn start_address(&self) -> VirtualAddress {
+    pub fn start_address(&self) -> VirtualAddress {
         self.0.start().start_address()
     }
 
     /// Returns the size in number of `Page`s.
     /// Use this instead of the Iterator trait's `count()` method.
     /// This is instant, because it doesn't need to iterate over each `Page`, unlike normal iterators.
-    pub const fn size_in_pages(&self) -> usize {
+    pub fn size_in_pages(&self) -> usize {
         // add 1 because it's an inclusive range
         self.0.end().number + 1 - self.0.start().number
     }
 
     /// Returns the size in number of bytes.
     pub fn size_in_bytes(&self) -> usize {
-        self.size_in_pages() * self.0.start().page_size().value()
+        self.size_in_pages() * self.0.start().page_size.page_size()
     }
 
     /// Whether this `PageRange` contains the given `VirtualAddress`.
     pub fn contains_virt_addr(&self, virt_addr: VirtualAddress) -> bool {
-        self.0.contains(&Page::containing_address(virt_addr))
+        self.0.contains(&Page::containing_address(virt_addr, self.0.start().page_size))
     }
 
     /// Returns the offset of the given `VirtualAddress` within this `PageRange`,
@@ -744,19 +738,19 @@ impl <A: PageType> PageRange {
     //     self.0.start().page_size()
     // }
 }
-impl fmt::Debug for PageRange {
+impl <A: PageType>fmt::Debug for PageRange<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{:?}", self.0)
 	}
 }
-impl Deref for PageRange {
-    type Target = RangeInclusive<Page<PageType>>;
-    fn deref(&self) -> &RangeInclusive<Page<PageType>> {
+impl <A: PageType>Deref for PageRange<A> {
+    type Target = RangeInclusive<Page<A>>;
+    fn deref(&self) -> &RangeInclusive<Page<A>> {
         &self.0
     }
 }
-impl DerefMut for PageRange {
-    fn deref_mut(&mut self) -> &mut RangeInclusive<Page<PageType>> {
+impl <A: PageType>DerefMut for PageRange<A> {
+    fn deref_mut(&mut self) -> &mut RangeInclusive<Page<A>> {
         &mut self.0
     }
 }
