@@ -8,7 +8,7 @@ extern crate kernel_config;
 extern crate multiboot2;
 extern crate xmas_elf;
 #[macro_use] extern crate derive_more;
-#[macro_use] extern crate raw_cpuid;
+// #[macro_use] extern crate raw_cpuid;
 extern crate bit_field;
 #[cfg(target_arch = "x86_64")]
 extern crate entryflags_x86_64;
@@ -78,9 +78,10 @@ impl VirtualAddress {
         self.0 & (PAGE_SIZE - 1)
     }
 
-    pub const fn hugepage_offset(&self, page_size : PageSize) -> usize {
-        self.0 & (page_size.value() - 1)
-    }
+    // TODO : Namitha
+    // pub const fn hugepage_offset(&self, page_size : PageSize) -> usize {
+    //     self.0 & (page_size.value() - 1)
+    // }
 }
 impl fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -181,9 +182,10 @@ impl PhysicalAddress {
         self.0 & (PAGE_SIZE - 1)
     }
 
-    pub fn hugepage_frame_offset(&self, page_size : PageSize) -> usize {
-        self.0 & (page_size.value() - 1)
-    }
+    // TODO Namitha
+    // pub fn hugepage_frame_offset(&self, page_size : PageSize) -> usize {
+    //     self.0 & (page_size.value() - 1)
+    // }
 }
 impl fmt::Debug for PhysicalAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -262,70 +264,76 @@ impl PhysicalMemoryArea {
     }
 }
 
-/// A structure indicating a page size the CPU supports
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub struct PageSize(usize);
+// /// A structure indicating a page size the CPU supports
+// #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+// pub struct PageSize(usize);
 
-impl PageSize {
-    /// Creates a new `PageSize`,
-    /// checking that the CPU actually support the size.
-    pub fn new(page_size_in_bytes: usize) -> Result<PageSize, &'static str> {
+// impl PageSize {
+//     /// Creates a new `PageSize`,
+//     /// checking that the CPU actually support the size.
+//     pub fn new(page_size_in_bytes: usize) -> Result<PageSize, &'static str> {
 
-        const KB_4: usize =         4*1024;
-        const MB_2: usize =    2*1024*1024;
-        const GB_1: usize = 1024*1024*1024;
+//         const KB_4: usize =         4*1024;
+//         const MB_2: usize =    2*1024*1024;
+//         const GB_1: usize = 1024*1024*1024;
 
-        match page_size_in_bytes {
-            // 4K pages
-            KB_4 => Ok(PageSize(page_size_in_bytes)),
+//         match page_size_in_bytes {
+//             // 4K pages
+//             KB_4 => Ok(PageSize(page_size_in_bytes)),
 
-            // 2M pages
-            // if CR0.PG = 1, CR4.PAE = 1, and IA32_EFER.LME = 1, IA-32e paging is used
-            // IA-32e supports 2M paging
-            MB_2 => Ok(PageSize(page_size_in_bytes)),
+//             // 2M pages
+//             // if CR0.PG = 1, CR4.PAE = 1, and IA32_EFER.LME = 1, IA-32e paging is used
+//             // IA-32e supports 2M paging
+//             MB_2 => Ok(PageSize(page_size_in_bytes)),
 
-            // 1G pages
-            // If CPUID.80000001H:EDX.Page1GB [bit 26] = 1,
-            GB_1 => {
-                let res = cpuid!(0x80000001);
-                if (res.edx >> 26) & 1  == 1 {
-                    Ok(PageSize(page_size_in_bytes))
-                } else {
-                    Err("The architecture does not support 1GB page size")
-                }
-            },
+//             // 1G pages
+//             // If CPUID.80000001H:EDX.Page1GB [bit 26] = 1,
+//             GB_1 => {
+//                 let res = cpuid!(0x80000001);
+//                 if (res.edx >> 26) & 1  == 1 {
+//                     Ok(PageSize(page_size_in_bytes))
+//                 } else {
+//                     Err("The architecture does not support 1GB page size")
+//                 }
+//             },
 
-            _ => {
-                Err("The architecture does not support the requested page size")
-            },
-        }
+//             _ => {
+//                 Err("The architecture does not support the requested page size")
+//             },
+//         }
         
-    }
+//     }
 
-    pub const fn default() -> PageSize {
-        PageSize(4096)
-    }
+//     pub const fn default() -> PageSize {
+//         PageSize(4096)
+//     }
 
-    // ratio of huge_page_size_to_standard_page_size
-    pub fn huge_page_ratio(&self) -> usize {
-        // self.0 / PAGE_SIZE
-        const KB_4: usize =         4*1024;
-        const MB_2: usize = 2*1024*1024;
-        const GB_1: usize = 1024*1024*1024;
+//     // ratio of huge_page_size_to_standard_page_size
+//     pub fn huge_page_ratio(&self) -> usize {
+//         // self.0 / PAGE_SIZE
+//         const KB_4: usize =         4*1024;
+//         const MB_2: usize = 2*1024*1024;
+//         const GB_1: usize = 1024*1024*1024;
         
-        match self.0 {
-            KB_4 => 1,
-            MB_2 => 512,
-            GB_1 => 512*512,
-            _ => 1,
-        }
-    }
+//         match self.0 {
+//             KB_4 => 1,
+//             MB_2 => 512,
+//             GB_1 => 512*512,
+//             _ => 1,
+//         }
+//     }
 
-    // Convenience function to get the actual size
-    #[inline]
-    pub const fn value(&self) -> usize {
-        self.0
-    } 
+//     // Convenience function to get the actual size
+//     #[inline]
+//     pub const fn value(&self) -> usize {
+//         self.0
+//     } 
+// }
+
+pub trait PageType
+{
+   fn page_size(&self) -> usize;
+   fn max_page_number(&self) -> usize;
 }
 
 // impl Default for HugePageSize {
@@ -352,20 +360,22 @@ impl Frame {
         }
     }
 
-    pub fn containing_huagepage_address(phys_addr: PhysicalAddress, page_size : PageSize) -> Frame {
-        Frame {
-            number: phys_addr.value() / page_size.value(),
-        }
-    }
+    // TODO Namitha
+    // pub fn containing_huagepage_address(phys_addr: PhysicalAddress, page_size : PageSize) -> Frame {
+    //     Frame {
+    //         number: phys_addr.value() / page_size.value(),
+    //     }
+    // }
 
     /// Returns the `PhysicalAddress` at the start of this `Frame`.
     pub fn start_address(&self) -> PhysicalAddress {
         PhysicalAddress::new_canonical(self.number * PAGE_SIZE)
     }
 
-    pub fn huagepage_start_address(&self, page_size : PageSize) -> PhysicalAddress {
-        PhysicalAddress::new_canonical(self.number * page_size.value())
-    }
+    // TODO Namitha
+    // pub fn huagepage_start_address(&self, page_size : PageSize) -> PhysicalAddress {
+    //     PhysicalAddress::new_canonical(self.number * page_size.value())
+    // }
 }
 
 impl Add<usize> for Frame {
@@ -523,29 +533,29 @@ impl IntoIterator for FrameRange {
 
 /// A virtual memory page, which contains the index of the page
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Page {
+pub struct Page<A: PageType> {
     number: usize,
-    page_size: PageSize
+    page_size: A
 }
-impl fmt::Debug for Page {
+impl <A: PageType> fmt::Debug for Page<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Page(v{:#X})", self.start_address())
     }
 }
 
-impl Page {
+impl<A: PageType> Page<A> {
     /// Returns the `Page` that contains the given `VirtualAddress`.
-    pub const fn containing_address(virt_addr: VirtualAddress) -> Page {
-        Page {
+    pub const fn containing_address(virt_addr: VirtualAddress, page_type: A) -> Page<A> {
+        Page::<A> {
             number: virt_addr.value() / PAGE_SIZE,
-            page_size: PageSize::default(),
+            page_size: page_type,
         }
     }
 
-    pub const fn containing_huge_page_address(virt_addr: VirtualAddress, page_size : PageSize) -> Page {
-        Page {
-            number: virt_addr.value() / page_size.value(),
-            page_size : page_size
+    pub const fn containing_huge_page_address(virt_addr: VirtualAddress, page_type : A) -> Page<A> {
+        Page::<A> {
+            number: virt_addr.value() / page_type.page_size(),
+            page_size : page_type
         }
     }
 
@@ -555,15 +565,15 @@ impl Page {
         VirtualAddress::new_canonical(self.number * self.page_size.value())
     }
 
-    /// Convenience function to get the number of normal page at the first location of huge frame
-    pub fn corresponding_normal_page(&self) -> Page {
-        Page::containing_address(self.start_address())
-    }
+    // /// Convenience function to get the number of normal page at the first location of huge frame
+    // pub fn corresponding_normal_page(&self) -> Page {
+    //     Page::containing_address(self.start_address())
+    // }
 
-    /// Convenience function to get the hugepage covering a normal page
-    pub fn from_normal_page(page : Page, page_size: PageSize) -> Page {
-        Page::containing_huge_page_address(page.start_address(), page_size)
-    }
+    // /// Convenience function to get the hugepage covering a normal page
+    // pub fn from_normal_page(page : Page, page_size: PageType) -> Page {
+    //     Page::containing_huge_page_address(page.start_address(), page_size)
+    // }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
     pub fn p4_index(&self) -> usize {
@@ -587,47 +597,47 @@ impl Page {
         (self.number*self.page_size.huge_page_ratio() >> 0) & 0x1FF
     }
 
-    /// Convenience function to get the page size
-    pub fn page_size(&self) -> PageSize {
-        self.page_size
-    }
+    // /// Convenience function to get the page size
+    // pub fn page_size(&self) -> PageSize {
+    //     self.page_size
+    // }
 }
 
-impl Add<usize> for Page {
-    type Output = Page;
+impl <A: PageType> Add<usize> for Page<A> {
+    type Output = Page<A>;
 
-    fn add(self, rhs: usize) -> Page {
+    fn add(self, rhs: usize) -> Page<A> {
         // cannot exceed max page number
-        Page {
-            number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+        Page::<A> {
+            number: core::cmp::min(self.page_size.max_page_number(), self.number.saturating_add(rhs)),
             page_size: self.page_size
         }
     }
 }
 
-impl AddAssign<usize> for Page {
+impl <A: PageType> AddAssign<usize> for Page<A> {
     fn add_assign(&mut self, rhs: usize) {
-        *self = Page {
-            number: core::cmp::min(MAX_PAGE_NUMBER, self.number.saturating_add(rhs)),
+        *self = Page::<A> {
+            number: core::cmp::min(self.page_size.max_page_number(), self.number.saturating_add(rhs)),
             page_size: self.page_size
         };
     }
 }
 
-impl Sub<usize> for Page {
-    type Output = Page;
+impl <A: PageType> Sub<usize> for Page<A> {
+    type Output = Page<A>;
 
-    fn sub(self, rhs: usize) -> Page {
-        Page {
+    fn sub(self, rhs: usize) -> Page<A> {
+        Page::<A> {
             number: self.number.saturating_sub(rhs),
             page_size: self.page_size
         }
     }
 }
 
-impl SubAssign<usize> for Page {
+impl <A: PageType> SubAssign<usize> for Page<A> {
     fn sub_assign(&mut self, rhs: usize) {
-        *self = Page {
+        *self = Page::<A> {
             number: self.number.saturating_sub(rhs),
             page_size: self.page_size
         };
@@ -635,41 +645,41 @@ impl SubAssign<usize> for Page {
 }
 
 // Implementing these functions allow `Page` to be in an `Iterator`.
-unsafe impl Step for Page {
+unsafe impl <A: PageType> Step for Page<A> {
     #[inline]
-    fn steps_between(start: &Page, end: &Page) -> Option<usize> {
+    fn steps_between(start: &Page<A>, end: &Page<A>) -> Option<usize> {
         Step::steps_between(&start.number, &end.number)
     }
     #[inline]
-    fn forward_checked(start: Page, count: usize) -> Option<Page> {
-        Step::forward_checked(start.number, count).map(|n| Page { number: n , page_size : start.page_size})
+    fn forward_checked(start: Page<A>, count: usize) -> Option<Page<A>> {
+        Step::forward_checked(start.number, count).map(|n| Page::<A> { number: n , page_size : start.page_size})
     }
     #[inline]
-    fn backward_checked(start: Page, count: usize) -> Option<Page> {
-        Step::backward_checked(start.number, count).map(|n| Page { number: n , page_size : start.page_size})
+    fn backward_checked(start: Page<A>, count: usize) -> Option<Page<A>> {
+        Step::backward_checked(start.number, count).map(|n| Page::<A> { number: n , page_size : start.page_size})
     }
 }
 
 /// An inclusive range of `Page`s that are contiguous in virtual memory.
 #[derive(Clone)]
-pub struct PageRange(RangeInclusive<Page>);
+pub struct PageRange(RangeInclusive<Page<dyn PageType>>);
 
-impl PageRange {
+impl <A: PageType> PageRange {
     /// Creates a new range of `Page`s that spans from `start` to `end`,
     /// both inclusive bounds.
-    pub const fn new(start: Page, end: Page) -> PageRange {
+    pub const fn new(start: Page<A>, end: Page<A>) -> PageRange {
         PageRange(RangeInclusive::new(start, end))
     }
 
     /// Creates a PageRange that will always yield `None`.
-    pub const fn empty(page_size: PageSize) -> PageRange {
+    pub const fn empty(page_size: A) -> PageRange {
         PageRange::new(Page { number: 1 , page_size: page_size}, Page { number: 0, page_size: page_size })
     }
 
     /// A convenience method for creating a new `PageRange`
     /// that spans all `Page`s from the given virtual address
     /// to an end bound based on the given size.
-    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: PageSize) -> PageRange {
+    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: A) -> PageRange {
         assert!(size_in_bytes > 0);
         let start_page = Page::containing_huge_page_address(starting_virt_addr, page_size);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
@@ -730,9 +740,9 @@ impl PageRange {
         }
     }
 
-    pub fn page_size(&self) -> PageSize {
-        self.0.start().page_size()
-    }
+    // pub fn page_size(&self) -> PageSize {
+    //     self.0.start().page_size()
+    // }
 }
 impl fmt::Debug for PageRange {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -740,20 +750,20 @@ impl fmt::Debug for PageRange {
 	}
 }
 impl Deref for PageRange {
-    type Target = RangeInclusive<Page>;
-    fn deref(&self) -> &RangeInclusive<Page> {
+    type Target = RangeInclusive<Page<PageType>>;
+    fn deref(&self) -> &RangeInclusive<Page<PageType>> {
         &self.0
     }
 }
 impl DerefMut for PageRange {
-    fn deref_mut(&mut self) -> &mut RangeInclusive<Page> {
+    fn deref_mut(&mut self) -> &mut RangeInclusive<Page<PageType>> {
         &mut self.0
     }
 }
 
-impl IntoIterator for PageRange {
-    type Item = Page;
-    type IntoIter = RangeInclusive<Page>;
+impl <A: PageType> IntoIterator for PageRange<A> {
+    type Item = Page<A>;
+    type IntoIter = RangeInclusive<Page<A>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0
