@@ -691,8 +691,8 @@ impl PageRange {
     }
 
     /// Returns the size in number of bytes.
-    pub const fn size_in_bytes(&self) -> usize {
-        self.size_in_pages() * PAGE_SIZE
+    pub fn size_in_bytes(&self) -> usize {
+        self.size_in_pages() * self.0.start().page_size().value()
     }
 
     /// Whether this `PageRange` contains the given `VirtualAddress`.

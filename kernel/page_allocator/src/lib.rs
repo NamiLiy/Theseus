@@ -142,6 +142,7 @@ impl AllocatedPages {
 
 	pub fn from_normal_pages(pages: PageRange, page_size: PageSize) -> Result<AllocatedPages,  &'static str>{
 		let huge_page_range = PageRange::from_virt_addr(pages.start_address(),pages.size_in_bytes(),page_size);
+		// warn!("{:?} {:?} {:?} {:?}", pages.start_address(), huge_page_range.start_address(), pages.size_in_bytes(), huge_page_range.size_in_bytes());
 		if pages.start_address() != huge_page_range.start_address() ||
 			pages.size_in_bytes() != huge_page_range.size_in_bytes() {
 				error!("AllocatedHugePages:from_normal_pages() : The normal pages are not aligned properly to convert to huge pages");
@@ -432,7 +433,7 @@ pub fn allocate_pages_deferred(
 
 		// If this chunk is exactly the right size, just update it in-place as 'allocated' and return that chunk.
 
-		if num_pages == c.pages.size_in_pages() {
+		if num_pages*page_size.huge_page_ratio() == c.pages.size_in_pages() {
 			c.allocated = true;
 			return Ok((
 				if page_size.huge_page_ratio() == 1 {
@@ -443,6 +444,9 @@ pub fn allocate_pages_deferred(
 				DeferredAllocAction::new(None, None, None),
 			));
 		}
+		// if page_size.huge_page_ratio() > 1{
+		// 	warn!("{:?} {:?}", potential_start_page, potential_end_page);
+		// }
 		
 		// The new allocated chunk might start in the middle of an existing chunk,
 		// so we need to break up that existing chunk into 3 possible chunks: before, newly-allocated, and after.
