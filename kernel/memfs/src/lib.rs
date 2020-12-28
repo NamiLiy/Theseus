@@ -16,7 +16,7 @@ extern crate irq_safety;
 use core::ops::DerefMut;
 use alloc::string::String;
 use fs_node::{DirRef, WeakDirRef, File, FsNode};
-use memory::{MappedPages, get_kernel_mmi_ref, allocate_pages_by_bytes, get_frame_allocator_ref, EntryFlags};
+use memory::{MappedPages, get_kernel_mmi_ref, allocate_pages_by_bytes, get_frame_allocator_ref, EntryFlags, PageSize};
 use alloc::sync::Arc;
 use spin::Mutex;
 use fs_node::{FileOrDir, FileRef};

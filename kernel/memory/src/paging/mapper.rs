@@ -177,79 +177,112 @@ impl Mapper {
     {
         // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
         let mut top_level_flags = flags.clone();
-        let mut modified_flags = flags.clone();
         top_level_flags.set(EntryFlags::NO_EXECUTE, false);
         // top_level_flags.set(EntryFlags::WRITABLE, true); // is the same true for the WRITABLE bit?
 
         for page in pages.deref().clone() {
-            
-            // TODO_BOWEN : need to support page_size() and huge_page_ratio() for AllocatedPages
-            let frame_set = if pages.page_size().huge_page_ratio() == 1 {
-                allocator.allocate_frame()
+            let frame = allocator.allocate_frame()
                 .ok_or("map_allocated_pages(): couldn't allocate new frame, out of memory!")?;
-            } else {
-                // TODO_BOWEN : need to unify the function here
-                allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_allocated_huge_pages(): couldn't allocate new frame, out of memory!")?;
-            };
 
-            // 4K page
-            if pages.page_size().huge_page_ratio() == 1 {
-                let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
-                let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
-                let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
+            let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+            let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
+            let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
 
-                if !p1[page.p1_index()].is_unused() {
-                    error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
-                        page.start_address(), frame_set.start_address()
-                    );
-                    return Err("map_allocated_pages(): page was already in use");
-                } 
+            if !p1[page.p1_index()].is_unused() {
+                error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+                    page.start_address(), frame.start_address()
+                );
+                return Err("map_allocated_pages(): page was already in use");
+            } 
 
-                p1[page.p1_index()].set(frame_set.start_frame(), flags | EntryFlags::PRESENT);
-                // debug!("4K");
-            }
-
-            // 2M pages
-            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
-                let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
-                let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
-
-                if !p2[page.p2_index()].is_unused() {
-                    error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
-                        page.start_address(), frame_set.start_address()
-                    );
-                    return Err("map_allocated_pages(): page was already in use");
-                } 
-
-                p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
-                
-                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
-                // debug!("2M");
-            }
-
-            // 1G pages
-            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
-                let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
-
-                if !p3[page.p3_index()].is_unused() {
-                    error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
-                        page.start_address(), frame_set.start_address()
-                    );
-                    return Err("map_allocated_pages(): page was already in use");
-                } 
-
-                p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
-
-                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
-                // debug!("1G");
-            }
+            p1[page.p1_index()].set(frame, flags | EntryFlags::PRESENT);
         }
 
-       Ok(MappedPages {
-                page_table_p4: self.target_p4.clone(),
-                pages,
-                flags: modified_flags,})
+        Ok(MappedPages {
+            page_table_p4: self.target_p4.clone(),
+            pages,
+            flags,
+        })
     }
+    
+    // /// Maps the given `AllocatedPages` to randomly chosen (allocated) physical frames.
+    // /// 
+    // /// Consumes the given `AllocatedPages` and returns a `MappedPages` object which contains those `AllocatedPages`.
+    // pub fn map_allocated_pages<A>(&mut self, pages: AllocatedPages, flags: EntryFlags, allocator: &mut A)
+    //     -> Result<MappedPages, &'static str>
+    //     where A: FrameAllocator
+    // {
+    //     // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
+    //     let mut top_level_flags = flags.clone();
+    //     let mut modified_flags = flags.clone();
+    //     top_level_flags.set(EntryFlags::NO_EXECUTE, false);
+    //     // top_level_flags.set(EntryFlags::WRITABLE, true); // is the same true for the WRITABLE bit?
+
+    //     for page in pages.deref().clone() {
+            
+    //         // TODO_BOWEN : need to support page_size() and huge_page_ratio() for AllocatedPages
+    //         let frame_set = allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_huge_pages(): couldn't allocate new frame, out of memory!")?;
+
+    //         // 4K page
+    //         if pages.page_size().huge_page_ratio() == 1 {
+    //             let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+    //             let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
+    //             let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
+
+    //             if !p1[page.p1_index()].is_unused() {
+    //                 error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+    //                     page.start_address(), frame_set.start_address()
+    //                 );
+    //                 return Err("map_allocated_pages(): page was already in use");
+    //             } 
+
+    //             p1[page.p1_index()].set(frame_set.start_frame(), flags | EntryFlags::PRESENT);
+    //             // debug!("4K");
+    //         }
+
+    //         // 2M pages
+    //         else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+    //             let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+    //             let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
+
+    //             if !p2[page.p2_index()].is_unused() {
+    //                 error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+    //                     page.start_address(), frame_set.start_address()
+    //                 );
+    //                 return Err("map_allocated_pages(): page was already in use");
+    //             } 
+
+    //             p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+                
+    //             modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+    //             // debug!("2M");
+    //         }
+
+    //         // 1G pages
+    //         else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+    //             let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+
+    //             if !p3[page.p3_index()].is_unused() {
+    //                 error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+    //                     page.start_address(), frame_set.start_address()
+    //                 );
+    //                 return Err("map_allocated_pages(): page was already in use");
+    //             } 
+
+    //             p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+
+    //             modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+    //             // debug!("1G");
+    //         }
+    //     }
+
+    //    Ok(MappedPages {
+    //             page_table_p4: self.target_p4.clone(),
+    //             pages,
+    //             flags: modified_flags,})
+    // }
+
+
 
 }
 
@@ -360,7 +393,15 @@ impl MappedPages {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
     /// TODO_BOWEN : need to make the parameter optional here
-    pub fn empty(page_size: PageSize) -> MappedPages {
+    pub fn empty() -> MappedPages {
+        MappedPages {
+            page_table_p4: get_current_p4(),
+            pages: AllocatedPages::empty(PageSize::default()),
+            flags: Default::default(),
+        }
+    }
+
+    pub fn empty_with_size(page_size: PageSize) -> MappedPages {
         MappedPages {
             page_table_p4: get_current_p4(),
             pages: AllocatedPages::empty(page_size),
@@ -393,7 +434,7 @@ impl MappedPages {
         
         // we didn't implement merge function for huge page
         if self.pages.page_size().huge_page_ratio() > 1 {
-            Err(("Merge not yet implemented for huge pages", mp))
+            return Err(("Merge not yet implemented for huge pages", mp));
         }
         
         if mp.page_table_p4 != self.page_table_p4 {
@@ -439,8 +480,8 @@ impl MappedPages {
     pub fn deep_copy<A: FrameAllocator>(&self, new_flags: Option<EntryFlags>, active_table_mapper: &mut Mapper, allocator: &mut A) -> Result<MappedPages, &'static str> {
         let size_in_pages = self.size_in_pages();
 
-        use paging::allocate_pages;
-        let new_pages = allocate_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
+        use paging::allocate_huge_pages;
+        let new_pages = allocate_huge_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
 
         // we must temporarily map the new pages as Writable, since we're about to copy data into them
         let new_flags = new_flags.unwrap_or(self.flags);

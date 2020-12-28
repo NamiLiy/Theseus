@@ -16,7 +16,7 @@ extern crate memory_structs;
 use alloc::vec::Vec;
 use alloc::string::String;
 use memory::{create_mapping, create_huge_mapping, EntryFlags};
-use memory_structs::HugePageSize;
+use memory_structs::PageSize;
 
 pub fn main(_args: Vec<String>) -> isize {
     println!("Testing huge page mappings");
@@ -36,7 +36,7 @@ pub fn main(_args: Vec<String>) -> isize {
     }
 
     // create 2M mapping
-    match HugePageSize::new(2*1024*1024) {
+    match PageSize::new(2*1024*1024) {
         Ok(page_size) => {
             match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
                 Ok(m) => {
@@ -54,7 +54,7 @@ pub fn main(_args: Vec<String>) -> isize {
     }
 
     // create 1G mapping
-    match HugePageSize::new(1024*1024*1024) {
+    match PageSize::new(1024*1024*1024) {
         Ok(page_size) => {
             match create_huge_mapping(bytes, EntryFlags::PRESENT | EntryFlags::WRITABLE, page_size){
                 Ok(m) => {

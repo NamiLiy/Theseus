@@ -326,7 +326,7 @@ pub fn init(
             
 
             // map the multiboot boot_info at the same address it is currently at, so we can continue to access boot_info 
-            let boot_info_pages  = PageRange::from_virt_addr(boot_info_start_vaddr, boot_info_size);
+            let boot_info_pages  = PageRange::from_virt_addr(boot_info_start_vaddr, boot_info_size, PageSize::default());
             debug!("Boot info covers pages: {:?}", boot_info_pages);
             let boot_info_frames = FrameRange::from_phys_addr(boot_info_start_paddr, boot_info_size);
             let boot_info_pages = page_allocator::allocate_pages_by_bytes_at(boot_info_start_vaddr, boot_info_size)?;

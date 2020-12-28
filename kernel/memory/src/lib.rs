@@ -150,7 +150,7 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
 
 /// Top level function to get a mapping of `size_in_bytes` as hugepages of page_size. 
 /// Only page_sizes supported by architecture can be obtained as HugePageSizes
-pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : HugePageSize) -> Result<MappedHugePages, &'static str> {
+pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : PageSize) -> Result<MappedPages, &'static str> {
     
     // Get AllocatedHugePages for the size of the range needed. 
     let allocated_huge_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("create_huge_mapping(): couldn't allocate pages!")?;
@@ -163,7 +163,7 @@ pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : 
         .lock();
 
     // Consumes the AllocatedHugePages and return MappedHugePages structure
-    kernel_mmi.page_table.map_allocated_huge_pages(allocated_huge_pages, flags, frame_allocator.deref_mut())
+    kernel_mmi.page_table.map_allocated_pages(allocated_huge_pages, flags, frame_allocator.deref_mut())
 }
 
 pub static BROADCAST_TLB_SHOOTDOWN_FUNC: Once<fn(PageRange)> = Once::new();
