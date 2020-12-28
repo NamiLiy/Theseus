@@ -620,17 +620,15 @@ impl Page {
     //     VirtualAddress::new_canonical(self.number * self.page_size.value())
     // }
 
-    // // TODO_BOWEN : don't know what to do with it
-    // /// Convenience function to get the number of normal page at the first location of huge frame
-    // pub fn corresponding_normal_page(&self) -> Page {
-    //     Page::containing_address(self.start_address())
-    // }
+    /// Convenience function to get the number of normal page at the first location of huge frame
+    pub fn corresponding_normal_page(&self) -> Page {
+        Page::containing_address(self.start_address())
+    }
 
-    // // TODO_BOWEN : don't know what to do with it
-    // /// Convenience function to get the hugepage covering a normal page
-    // pub fn from_normal_page(page : Page, page_size: PageSize) -> Page {
-    //     Page::containing_address(page.start_address(), page_size)
-    // }
+    /// Convenience function to get the hugepage covering a normal page
+    pub fn from_normal_page(page : Page, page_size: PageSize) -> Page {
+        Page::containing_huge_page_address(page.start_address(), page_size)
+    }
 
     /// Returns the 9-bit part of this page's virtual address that is the index into the P4 page table entries list.
     pub fn p4_index(&self) -> usize {
@@ -731,11 +729,11 @@ impl PageRange {
     /// A convenience method for creating a new `PageRange`
     /// that spans all `Page`s from the given virtual address
     /// to an end bound based on the given size.
-    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize) -> PageRange {
+    pub fn from_virt_addr(starting_virt_addr: VirtualAddress, size_in_bytes: usize, page_size: PageSize) -> PageRange {
         assert!(size_in_bytes > 0);
-        let start_page = Page::containing_address(starting_virt_addr);
+        let start_page = Page::containing_huge_page_address(starting_virt_addr, page_size);
 		// The end page is an inclusive bound, hence the -1. Parentheses are needed to avoid overflow.
-        let end_page = Page::containing_address(starting_virt_addr + (size_in_bytes - 1));
+        let end_page = Page::containing_huge_page_address(starting_virt_addr + (size_in_bytes - 1), page_size);
         PageRange::new(start_page, end_page)
     }
 
