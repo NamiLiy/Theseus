@@ -258,7 +258,7 @@ impl Mapper {
 /// Thus, it ensures memory safety by guaranteeing that this object must be held 
 /// in order to access data stored in these mapped pages, much like a guard type.
 #[derive(Debug)]
-pub struct MappedPages {
+pub struct MappedPages<A: PageType> {
     /// The Frame containing the top-level P4 page table that this MappedPages was originally mapped into. 
     page_table_p4: Frame,
     /// The range of allocated virtual pages contained by this mapping.
@@ -273,22 +273,22 @@ impl Deref for MappedPages {
     }
 }
 
-impl MappedPages {
+impl <A: PageType> MappedPages<A> {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
     /// TODO_BOWEN : need to make the parameter optional here
-    pub fn empty() -> MappedPages {
-        MappedPages {
+    pub fn empty() -> MappedPages<A> {
+        MappedPages<A> {
             page_table_p4: get_current_p4(),
-            pages: AllocatedPages::empty(PageSize::default()),
+            pages: AllocatedPages::empty(PageType::default()),
             flags: Default::default(),
         }
     }
 
-    pub fn empty_with_size(page_size: PageSize) -> MappedPages {
-        MappedPages {
+    pub fn empty_with_size(page_type : A) -> MappedPages<A> {
+        MappedPages<A> {
             page_table_p4: get_current_p4(),
-            pages: AllocatedPages::empty(page_size),
+            pages: AllocatedPages::empty(page_type),
             flags: Default::default(),
         }
     }
@@ -314,7 +314,7 @@ impl MappedPages {
     /// 
     /// # Note
     /// No remapping actions or page reallocations will occur on either a failure or a success.
-    pub fn merge(&mut self, mut mp: MappedPages) -> Result<(), (&'static str, MappedPages)> {
+    pub fn merge(&mut self, mut mp: MappedPages<A>) -> Result<(), (&'static str, MappedPages<A>)> {
         
         // we didn't implement merge function for huge page
         if self.pages.page_size().huge_page_ratio() > 1 {
@@ -439,8 +439,7 @@ impl MappedPages {
 
             tlb_flush_virt_addr(page.start_address());
         }
-        
-        // TODO_BOWEN : MappedHugePages doesn't have the logic below, therefore adding a guard for 4K page here
+
         if self.pages.page_size().huge_page_ratio() == 1 {
             if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
                 func(self.pages.deref().clone());
@@ -499,8 +498,7 @@ impl MappedPages {
             // TODO free p(1,2,3) table if empty
             // _allocator_ref.lock().deallocate_frame(frame);
         }
-    
-        // TODO_BOWEN : MappedHugePages doesn't have the logic below, therefore adding a guard for 4K page here
+
         if self.pages.page_size().huge_page_ratio() == 1
         {
             #[cfg(not(bm_map))]
@@ -779,7 +777,7 @@ pub fn mapped_pages_unmap<A: FrameAllocator>(
 }
 
 
-impl Drop for MappedPages {
+impl <A: PageType> Drop for MappedPages<A> {
     fn drop(&mut self) {
         if self.size_in_pages() == 0 { return; }
         // trace!("MappedPages::drop(): unmapping MappedPages {:?}", &*self.pages);
