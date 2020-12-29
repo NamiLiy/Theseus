@@ -780,7 +780,7 @@ pub fn mapped_pages_unmap<A: FrameAllocator>(
 }
 
 
-impl <A: PageType> Drop for MappedPages<A> {
+impl <P: PageType> Drop for MappedPages<P> {
     fn drop(&mut self) {
         if self.size_in_pages() == 0 { return; }
         // trace!("MappedPages::drop(): unmapping MappedPages {:?}", &*self.pages);
