@@ -321,7 +321,7 @@ impl AllocablePage for ObjectPage8k {
 
 /// A wrapper type around MappedPages which ensures that the MappedPages
 /// have a size and alignment of 8 KiB and are writable.
-pub struct MappedPages8k(MappedPages);
+pub struct MappedPages8k(MappedPages<Page4K>);
 
 impl MappedPages8k {
     pub const SIZE: usize = ObjectPage8k::SIZE;
@@ -330,7 +330,7 @@ impl MappedPages8k {
     pub const HEAP_ID_OFFSET: usize = ObjectPage8k::HEAP_ID_OFFSET;
     
     /// Creates a MappedPages8k object from MappedPages that have a size and alignment of 8 KiB and are writable.
-    pub fn new(mp: MappedPages) -> Result<MappedPages8k, &'static str> {
+    pub fn new(mp: MappedPages<Page4K>) -> Result<MappedPages8k, &'static str> {
         let vaddr = mp.start_address().value();
         
         // check that the mapped pages are aligned to 8k

@@ -17,7 +17,7 @@ use alloc::boxed::Box;
 use spin::{Mutex, MutexGuard};
 use volatile::{Volatile, WriteOnly};
 use zerocopy::FromBytes;
-use memory::{get_frame_allocator_ref, Frame, FrameRange, PageTable, PhysicalAddress, EntryFlags, allocate_pages, MappedPages};
+use memory::{get_frame_allocator_ref, Frame, FrameRange, PageTable, PhysicalAddress, EntryFlags, allocate_pages, MappedPages, Page4K};
 use atomic_linked_list::atomic_map::AtomicMap;
 use owning_ref::BoxRefMut;
 
@@ -66,7 +66,7 @@ const INTERRUPT_ENTRIES_PER_IOAPIC: u32 = 24;
 
 /// A representation of an IoApic (x86-specific interrupt chip for I/O devices).
 pub struct IoApic {
-    regs: BoxRefMut<MappedPages, IoApicRegisters>,
+    regs: BoxRefMut<MappedPages<Page4K>, IoApicRegisters>,
     /// The ID of this IoApic.
     pub id: u8,
     /// not yet used.

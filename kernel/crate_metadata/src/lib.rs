@@ -60,7 +60,7 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use memory::{MappedPages, VirtualAddress, EntryFlags};
+use memory::{MappedPages, VirtualAddress, EntryFlags, Page4K};
 #[cfg(internal_deps)] use memory::{PageTable, FrameAllocator};
 use cow_arc::{CowArc, CowWeak};
 use fs_node::{FileRef, WeakFileRef};
@@ -211,17 +211,17 @@ pub struct LoadedCrate {
     /// 1. The `MappedPages` that contain sections that are readable and executable, but not writable,
     ///     i.e., the `.text` sections for this crate,
     /// 2. The range of virtual addresses covered by this mapping.
-    pub text_pages: Option<(Arc<Mutex<MappedPages>>, Range<VirtualAddress>)>,
+    pub text_pages: Option<(Arc<Mutex<MappedPages<Page4K>>>, Range<VirtualAddress>)>,
     /// A tuple of:    
     /// 1. The `MappedPages` that contain sections that are read-only, not writable nor executable,
     ///     i.e., the `.rodata`, `.eh_frame`, and `.gcc_except_table` sections for this crate,
     /// 2. The range of virtual addresses covered by this mapping.
-    pub rodata_pages: Option<(Arc<Mutex<MappedPages>>, Range<VirtualAddress>)>,
+    pub rodata_pages: Option<(Arc<Mutex<MappedPages<Page4K>>>, Range<VirtualAddress>)>,
     /// A tuple of:    
     /// 1. The `MappedPages` that contain sections that are readable and writable but not executable,
     ///     i.e., the `.data` and `.bss` sections for this crate,
     /// 2. The range of virtual addresses covered by this mapping.
-    pub data_pages: Option<(Arc<Mutex<MappedPages>>, Range<VirtualAddress>)>,
+    pub data_pages: Option<(Arc<Mutex<MappedPages<Page4K>>>, Range<VirtualAddress>)>,
     
     // The fields below are most used to accelerate crate swapping,
     // and are not strictly necessary just for normal crate usage and management.
@@ -666,7 +666,7 @@ impl LoadedSection {
     pub fn new(
         typ: SectionType, 
         name: String, 
-        mapped_pages: Arc<Mutex<MappedPages>>,
+        mapped_pages: Arc<Mutex<MappedPages<Page4K>>>,
         mapped_pages_offset: usize,
         virt_addr: VirtualAddress,
         size: usize,
@@ -693,7 +693,7 @@ impl LoadedSection {
     pub fn with_dependencies(
         typ: SectionType, 
         name: String, 
-        mapped_pages: Arc<Mutex<MappedPages>>,
+        mapped_pages: Arc<Mutex<MappedPages<Page4K>>>,
         mapped_pages_offset: usize,
         virt_addr: VirtualAddress,
         size: usize,
@@ -919,7 +919,7 @@ impl InternalDependency {
 /// * `verbose_log`: whether to output verbose logging information about this relocation action.
 pub fn write_relocation(
     relocation_entry: RelocationEntry,
-    target_sec_mapped_pages: &mut MappedPages,
+    target_sec_mapped_pages: &mut MappedPages<Page4K>,
     target_sec_mapped_pages_offset: usize,
     source_sec_vaddr: VirtualAddress,
     verbose_log: bool

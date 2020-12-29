@@ -9,14 +9,14 @@ extern crate mpmc;
 
 use core::ops::{Deref, DerefMut};
 use alloc::vec::Vec;
-use memory::{PhysicalAddress, MappedPages, EntryFlags, create_contiguous_mapping};
+use memory::{PhysicalAddress, MappedPages, EntryFlags, create_contiguous_mapping, Page4K};
 
 
 /// A buffer that stores a packet to be transmitted through the NIC
 /// and is guaranteed to be contiguous in physical memory. 
 /// Auto-dereferences into a `MappedPages` object that represents its underlying memory. 
 pub struct TransmitBuffer {
-    pub mp: MappedPages,
+    pub mp: MappedPages<Page4K>,
     pub phys_addr: PhysicalAddress,
     pub length: u16,
 }
@@ -43,13 +43,13 @@ impl TransmitBuffer {
 }
 
 impl Deref for TransmitBuffer {
-    type Target = MappedPages;
-    fn deref(&self) -> &MappedPages {
+    type Target = MappedPages<Page4K>;
+    fn deref(&self) -> &MappedPages<Page4K> {
         &self.mp
     }
 }
 impl DerefMut for TransmitBuffer {
-    fn deref_mut(&mut self) -> &mut MappedPages {
+    fn deref_mut(&mut self) -> &mut MappedPages<Page4K> {
         &mut self.mp
     }
 }
@@ -60,7 +60,7 @@ impl DerefMut for TransmitBuffer {
 /// Auto-dereferences into a `MappedPages` object that represents its underlying memory. 
 /// When dropped, its underlying memory is automatically returned to the NIC driver for future reuse.
 pub struct ReceiveBuffer {
-    pub mp: MappedPages,
+    pub mp: MappedPages<Page4K>,
     pub phys_addr: PhysicalAddress,
     pub length: u16,
     pool: &'static mpmc::Queue<ReceiveBuffer>,
@@ -68,7 +68,7 @@ pub struct ReceiveBuffer {
 impl ReceiveBuffer {
     /// Creates a new ReceiveBuffer with the given `MappedPages`, `PhysicalAddress`, and `length`. 
     /// When this ReceiveBuffer object is dropped, it will be returned to the given `pool`.
-    pub fn new(mp: MappedPages, phys_addr: PhysicalAddress, length: u16, pool: &'static mpmc::Queue<ReceiveBuffer>) -> ReceiveBuffer {
+    pub fn new(mp: MappedPages<Page4K>, phys_addr: PhysicalAddress, length: u16, pool: &'static mpmc::Queue<ReceiveBuffer>) -> ReceiveBuffer {
         ReceiveBuffer {
             mp: mp,
             phys_addr: phys_addr,
@@ -78,13 +78,13 @@ impl ReceiveBuffer {
     }
 }
 impl Deref for ReceiveBuffer {
-    type Target = MappedPages;
-    fn deref(&self) -> &MappedPages {
+    type Target = MappedPages<Page4K>;
+    fn deref(&self) -> &MappedPages<Page4K> {
         &self.mp
     }
 }
 impl DerefMut for ReceiveBuffer {
-    fn deref_mut(&mut self) -> &mut MappedPages {
+    fn deref_mut(&mut self) -> &mut MappedPages<Page4K> {
         &mut self.mp
     }
 }

@@ -30,7 +30,7 @@ use spin::Once;
 use raw_cpuid::CpuId;
 use x86_64::registers::msr::*;
 use irq_safety::RwLockIrqSafe;
-use memory::{get_frame_allocator_ref, Frame, FrameRange, PageTable, PhysicalAddress, EntryFlags, MappedPages, allocate_pages};
+use memory::{get_frame_allocator_ref, Frame, FrameRange, PageTable, PhysicalAddress, EntryFlags, MappedPages, allocate_pages, Page4K};
 use kernel_config::time::CONFIG_TIMESLICE_PERIOD_MICROSECONDS;
 use atomic_linked_list::atomic_map::AtomicMap;
 use atomic::Atomic;
@@ -55,7 +55,7 @@ lazy_static! {
     static ref LOCAL_APICS: AtomicMap<u8, RwLockIrqSafe<LocalApic>> = AtomicMap::new();
 }
 
-static APIC_REGS: Once<BoxRef<MappedPages, ApicRegisters>> = Once::new();
+static APIC_REGS: Once<BoxRef<MappedPages<Page4K>, ApicRegisters>> = Once::new();
 
 /// The processor id (from the ACPI MADT table) of the bootstrap processor
 static BSP_PROCESSOR_ID: Once<u8> = Once::new(); 
@@ -153,7 +153,7 @@ pub fn init(page_table: &mut PageTable) -> Result<(), &'static str> {
 
 
 /// return a mapping of APIC memory-mapped I/O registers 
-fn map_apic(page_table: &mut PageTable) -> Result<MappedPages, &'static str> {
+fn map_apic(page_table: &mut PageTable) -> Result<MappedPages<Page4K>, &'static str> {
     if has_x2apic() { return Err("map_apic() is only for use in apic/xapic systems, not x2apic."); }
 
     // make sure the local apic is enabled in xapic mode, otherwise we'll get a General Protection fault
@@ -275,7 +275,7 @@ const_assert_eq!(core::mem::size_of::<RegisterArray>(), 8 * (4 + 12));
 /// This structure represents a single APIC in the system, there is one per core. 
 pub struct LocalApic {
     /// Only exists for xapic, should be None for x2apic systems.
-    pub regs: Option<BoxRefMut<MappedPages, ApicRegisters>>,
+    pub regs: Option<BoxRefMut<MappedPages<Page4K>, ApicRegisters>>,
     /// The processor id of this APIC.
     pub processor: u8,
     /// The APIC system id of this APIC.

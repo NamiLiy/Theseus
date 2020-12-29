@@ -19,7 +19,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 use alloc::sync::{Arc, Weak};
-use memory::MappedPages;
+use memory::{MappedPages, Page4K};
 
 
 /// A reference to any type that implements the Directory trait.
@@ -75,7 +75,7 @@ pub trait File : FsNode {
     fn size(&self) -> usize;
 
     /// Returns a view of this file as an immutable memory-mapped region.
-    fn as_mapping(&self) -> Result<&MappedPages, &'static str>;
+    fn as_mapping(&self) -> Result<&MappedPages<Page4K>, &'static str>;
 }
 
 /// Trait for directories, implementors of Directory must also implement FsNode

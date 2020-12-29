@@ -13,7 +13,7 @@ extern crate page_allocator;
 use core::ops::{Deref, DerefMut};
 use kernel_config::memory::PAGE_SIZE;
 use memory_structs::VirtualAddress;
-use memory::{FrameAllocator, FrameAllocatorRef, EntryFlags, Mapper, MappedPages};
+use memory::{FrameAllocator, FrameAllocatorRef, EntryFlags, Mapper, MappedPages, Page4K};
 use page_allocator::AllocatedPages;
 
 
@@ -75,17 +75,17 @@ fn inner_alloc_stack<FA>(
 /// A stack is backed by and auto-derefs into `MappedPages`. 
 #[derive(Debug)]
 pub struct Stack {
-    guard_page: AllocatedPages,
-    pages: MappedPages,
+    guard_page: AllocatedPages<Page4K>,
+    pages: MappedPages<Page4K>,
 }
 impl Deref for Stack {
-    type Target = MappedPages;
-    fn deref(&self) -> &MappedPages {
+    type Target = MappedPages<Page4K>;
+    fn deref(&self) -> &MappedPages<Page4K> {
         &self.pages
     }
 }
 impl DerefMut for Stack {
-    fn deref_mut(&mut self) -> &mut MappedPages {
+    fn deref_mut(&mut self) -> &mut MappedPages<Page4K> {
         &mut self.pages
     }
 }
@@ -124,9 +124,9 @@ impl Stack {
     /// If the conditions are not met, 
     /// an `Err` containing the given `guard_page` and `stack_pages` is returned.
     pub fn from_pages(
-        guard_page: AllocatedPages,
-        stack_pages: MappedPages
-    ) -> Result<Stack, (AllocatedPages, MappedPages)> {
+        guard_page: AllocatedPages<Page4K>,
+        stack_pages: MappedPages<Page4K>
+    ) -> Result<Stack, (AllocatedPages<Page4K>, MappedPages<Page4K>)> {
         if (*guard_page.end() + 1) == *stack_pages.start() 
             && stack_pages.flags().is_writable()
         {

@@ -43,7 +43,7 @@ pub use zone::*;
 use core::alloc::Layout;
 use core::mem;
 use core::ptr::{self, NonNull};
-use memory::{MappedPages, VirtualAddress};
+use memory::{MappedPages, VirtualAddress, Page4K};
 use alloc::vec::Vec;
 
 #[cfg(target_arch = "x86_64")]

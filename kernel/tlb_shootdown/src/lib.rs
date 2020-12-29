@@ -24,7 +24,7 @@ pub static TLB_SHOOTDOWN_IPI_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// The lock that makes sure only one set of TLB shootdown IPIs is concurrently happening
 pub static TLB_SHOOTDOWN_IPI_LOCK: AtomicBool = AtomicBool::new(false);
 /// The range of pages for a TLB shootdown IPI.
-pub static TLB_SHOOTDOWN_IPI_PAGES: RwLockIrqSafe<Option<PageRange>> = RwLockIrqSafe::new(None);
+pub static TLB_SHOOTDOWN_IPI_PAGES: RwLockIrqSafe<Option<PageRange<<Page4K>>>> = RwLockIrqSafe::new(None);
 
 
 /// Initializes data, functions, and structures for the TLB shootdown. 
@@ -37,7 +37,7 @@ pub fn init() {
 /// Broadcasts TLB shootdown IPI to all other AP cores.
 /// Do not invoke this directly, but rather pass it as a callback to the memory subsystem,
 /// which will invoke it as needed (on remap/unmap operations).
-fn broadcast_tlb_shootdown(pages_to_invalidate: PageRange) {
+fn broadcast_tlb_shootdown(pages_to_invalidate: PageRange<Page4K>) {
     if let Some(my_lapic) = get_my_apic() {
         // info!("broadcast_tlb_shootdown():  AP {}, vaddrs: {:?}", my_lapic.read().apic_id, virtual_addresses);
         send_tlb_shootdown_ipi(&mut my_lapic.write(), pages_to_invalidate);
@@ -49,7 +49,7 @@ fn broadcast_tlb_shootdown(pages_to_invalidate: PageRange) {
 /// covered by the given range of `pages_to_invalidate`.
 /// 
 /// There is no need to invoke this directly, it will be called by an IPI interrupt handler.
-pub fn handle_tlb_shootdown_ipi(pages_to_invalidate: PageRange) {
+pub fn handle_tlb_shootdown_ipi(pages_to_invalidate: PageRange<Page4K>) {
     // trace!("handle_tlb_shootdown_ipi(): AP {}, pages: {:?}", apic::get_my_apic_id(), pages_to_invalidate);
 
     for page in pages_to_invalidate {
@@ -61,7 +61,7 @@ pub fn handle_tlb_shootdown_ipi(pages_to_invalidate: PageRange) {
 
 /// Sends an IPI to all other cores (except me) to trigger 
 /// a TLB flush of the given pages' virtual addresses.
-pub fn send_tlb_shootdown_ipi(my_lapic: &mut LocalApic, pages_to_invalidate: PageRange) {        
+pub fn send_tlb_shootdown_ipi(my_lapic: &mut LocalApic, pages_to_invalidate: PageRange<Page4K>) {        
     // skip sending IPIs if there are no other cores running
     let core_count = core_count();
     if core_count <= 1 {

@@ -18,7 +18,7 @@ use spin::Mutex;
 use alloc::sync::{Arc, Weak};
 use alloc::collections::BTreeMap;
 use fs_node::{DirRef, FileRef, WeakDirRef, Directory, FileOrDir, File, FsNode};
-use memory::MappedPages;
+use memory::{MappedPages, Page4K};
 
 
 /// A struct that represents a node in the VFS 
@@ -129,7 +129,7 @@ impl File for VFSFile {
         self.size
     }
     
-    fn as_mapping(&self) -> Result<&MappedPages, &'static str> {
+    fn as_mapping(&self) -> Result<&MappedPages<Page4K>, &'static str> {
         Err("cannot treat a VFSFile as a memory mapped region")
     }
 }

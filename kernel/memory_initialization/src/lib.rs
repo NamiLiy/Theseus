@@ -8,7 +8,7 @@ extern crate memory;
 extern crate stack;
 extern crate multiboot2;
 
-use memory::{MmiRef, MappedPages, VirtualAddress};
+use memory::{MmiRef, MappedPages, VirtualAddress, Page4K};
 use kernel_config::memory::{KERNEL_HEAP_START, KERNEL_HEAP_INITIAL_SIZE};
 use multiboot2::BootInformation;
 use alloc::vec::Vec;
@@ -45,7 +45,7 @@ macro_rules! try_forget {
 ///  * the initial stack for this CPU (e.g., the BSP stack) that is currently in use,
 ///  * the kernel's list of identity-mapped MappedPages which should be dropped before starting the first user application. 
 pub fn init_memory_management(boot_info: &BootInformation)  
-    -> Result<(MmiRef, MappedPages, MappedPages, MappedPages, Stack, Vec<MappedPages>), &'static str>
+    -> Result<(MmiRef, MappedPages<Page4K>, MappedPages<Page4K>, MappedPages<Page4K>, Stack, Vec<MappedPages<Page4K>>), &'static str>
 {
     // Initialize memory management: paging (create a new page table), essential kernel mappings
     let (

@@ -15,7 +15,7 @@ extern crate zerocopy;
 
 use core::ops::DerefMut;
 use alloc::collections::BTreeMap;
-use memory::{MappedPages, allocate_pages, PageTable, EntryFlags, PhysicalAddress, Frame, FrameRange, get_frame_allocator_ref, PhysicalMemoryArea};
+use memory::{MappedPages, allocate_pages, PageTable, EntryFlags, PhysicalAddress, Frame, FrameRange, get_frame_allocator_ref, PhysicalMemoryArea, Page4K};
 use sdt::Sdt;
 use core::ops::Add;
 use zerocopy::FromBytes;
@@ -43,7 +43,7 @@ pub struct TableLocation {
 /// As more ACPI tables are discovered, the single MappedPages object is 
 pub struct AcpiTables {
     /// The range of pages that cover all of the discovered ACPI tables.
-    mapped_pages: MappedPages,
+    mapped_pages: MappedPages<Page4K>,
     /// The physical memory frames that hold the ACPI tables,
     /// and are thus covered by the `mapped_pages`.
     frames: FrameRange,
@@ -138,7 +138,7 @@ impl AcpiTables {
 
     /// Adjusts the offsets for all tables based on the new `MappedPages` and the new `FrameRange`.
     /// This object's (self) `frames` and `mappped_pages` will be replaced with the given items.
-    fn adjust_mapping_offsets(&mut self, new_frames: FrameRange, new_mapped_pages: MappedPages) {
+    fn adjust_mapping_offsets(&mut self, new_frames: FrameRange, new_mapped_pages: MappedPages<Page4K>) {
         // The basic idea here is that if we mapped new frames to the beginning of the mapped pages, 
         // then all of the table offsets will be wrong and need to be adjusted. 
         // To fix them, we simply add the number of bytes in the new frames that were prepended to the memory region.
@@ -228,7 +228,7 @@ impl AcpiTables {
 
     /// Returns an immutable reference to the underlying `MappedPages` that covers the ACPI tables.
     /// To access the ACPI tables, use the table's `get()` function, e.g., `Fadt::get(...)` instead of this function.
-    pub fn mapping(&self) -> &MappedPages {
+    pub fn mapping(&self) -> &MappedPages<Page4K> {
         &self.mapped_pages
     }
 }

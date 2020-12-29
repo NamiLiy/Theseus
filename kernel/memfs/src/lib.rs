@@ -16,7 +16,7 @@ extern crate irq_safety;
 use core::ops::DerefMut;
 use alloc::string::String;
 use fs_node::{DirRef, WeakDirRef, File, FsNode};
-use memory::{MappedPages, get_kernel_mmi_ref, allocate_pages_by_bytes, get_frame_allocator_ref, EntryFlags, PageSize};
+use memory::{MappedPages, get_kernel_mmi_ref, allocate_pages_by_bytes, get_frame_allocator_ref, EntryFlags, Page4K};
 use alloc::sync::Arc;
 use spin::Mutex;
 use fs_node::{FileOrDir, FileRef};
@@ -29,7 +29,7 @@ pub struct MemFile {
     /// Note that this is not the same as the capacity of its underlying MappedPages object. 
     size: usize,
     /// The underlying contents of this file in memory.
-    mp: MappedPages,
+    mp: MappedPages<Page4K>,
     /// The parent directory that contains this file.
     parent: WeakDirRef,
 }
@@ -42,7 +42,7 @@ impl MemFile {
     }
 
     /// Creates a new `MemFile` in the given `parent` directory with the contents of the given `mapped_pages`.
-    pub fn from_mapped_pages(mapped_pages: MappedPages, name: String, size: usize, parent: &DirRef) -> Result<FileRef, &'static str> {
+    pub fn from_mapped_pages(mapped_pages: MappedPages<Page4K>, name: String, size: usize, parent: &DirRef) -> Result<FileRef, &'static str> {
         let memfile = MemFile {
             name: name, 
             size: size, 
@@ -134,7 +134,7 @@ impl File for MemFile {
         self.size
     }
 
-    fn as_mapping(&self) -> Result<&MappedPages, &'static str> {
+    fn as_mapping(&self) -> Result<&MappedPages<Page4K>, &'static str> {
         Ok(&self.mp)
     }
     

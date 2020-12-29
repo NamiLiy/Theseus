@@ -16,7 +16,7 @@ use alloc::{
 };
 use spin::Mutex;
 use fs_node::{FileOrDir, FileRef, DirRef, WeakDirRef, File, FsNode};
-use memory::MappedPages;
+use memory::{MappedPages, Page4K};
 
 /// A file in memory that is backed by the heap, i.e., a `Vec`.
 pub struct HeapFile {
@@ -93,7 +93,7 @@ impl File for HeapFile {
         self.vec.len()
     }
 
-    fn as_mapping(&self) -> Result<&MappedPages, &'static str> {
+    fn as_mapping(&self) -> Result<&MappedPages<Page4K>, &'static str> {
         Err("Mapping a HeapFile as a MappedPages object is unimplemented")
     }
     

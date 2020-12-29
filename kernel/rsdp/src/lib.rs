@@ -9,7 +9,7 @@ extern crate zerocopy;
 
 use core::ops::DerefMut;
 use core::mem;
-use memory::{PageTable, MappedPages, Frame, FrameRange, get_frame_allocator_ref, PhysicalAddress, allocate_pages_by_bytes, EntryFlags};
+use memory::{PageTable, MappedPages, Frame, FrameRange, get_frame_allocator_ref, PhysicalAddress, allocate_pages_by_bytes, EntryFlags, Page4K};
 use owning_ref::BoxRef;
 use alloc::boxed::Box;
 use zerocopy::FromBytes;
@@ -44,7 +44,7 @@ pub struct Rsdp {
 impl Rsdp {
     /// Search for the RSDP in the BIOS memory area from 0xE_0000 to 0xF_FFFF.
     /// Returns the RSDP structure and the pages that are currently mapping it.
-    pub fn get_rsdp(page_table: &mut PageTable) -> Result<BoxRef<MappedPages, Rsdp>, &'static str> {
+    pub fn get_rsdp(page_table: &mut PageTable) -> Result<BoxRef<MappedPages<Page4K>, Rsdp>, &'static str> {
         let size: usize = RSDP_SEARCH_END - RSDP_SEARCH_START;
         let pages = allocate_pages_by_bytes(size).ok_or("couldn't allocate pages")?;
         let search_range = FrameRange::new(
@@ -61,7 +61,7 @@ impl Rsdp {
     }
 
     /// Searches a region of memory for the RSDP, which is identified by the "RSD PTR " signature.
-    fn search(region: MappedPages) -> Result<BoxRef<MappedPages, Rsdp>, &'static str> {
+    fn search(region: MappedPages<Page4K>) -> Result<BoxRef<MappedPages<Page4K>, Rsdp>, &'static str> {
         let size = region.size_in_bytes() - mem::size_of::<Rsdp>();
         let signature_length = mem::size_of_val(RSDP_SIGNATURE);
         let mut found_offset: Option<usize> = None;
