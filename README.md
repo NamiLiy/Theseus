@@ -1,17 +1,15 @@
-Huge Page Support of Theseus 
+Huge Page Support of Theseus - CPSC626
 
 Namitha Liyanage, Bowen Huang
 
-CPSC626
-
 # Link to the source codes
 
-https://github.com/NamiLiy/Theseus/tree/cpsc626 
+https://github.com/NamiLiy/Theseus/commits/cpsc626_unified 
+https://github.com/NamiLiy/Theseus/tree/cpsc626
 
 # Percentage of the credits
 
 Namitha Liyanage :  50%
-
 Bowen Huang :  50%
 
 # How to run
@@ -22,9 +20,21 @@ This application creates pages of 4KB, 2MB and 1GB depending on architectural su
 
 # Description
 
-To implement huge page support within the theseus, basically we need to create a function that can allocate huge pages and map those allocated hugepages to physical frames.
+To implement huge page support within the theseus, basically we need to write logics that can allocate huge pages and map those allocated hugepages to physical frames. 
 
-The basic idea and motivation behind our implementation is that we found that most of the functions/structs can be slightly modified/extended to support 2MB and 1GB huge pages. Therefore we created functions and data structures excessively for huge_page support by copying from standard code to support paging. Our modified code can support any page size the architecture supports. To ensure this we leverage the power of the language. Huge pages can be requested only using a HugePageSize data structure which indicates the page size. When obtaining a HugePageSize structure (which happens only once) we check whether the architecture supports the size. This prevents the users from creating arbitrary sized page structures not supported by the architecture, leading to myriad bugs.
+Within the Theseus, there is a clear path of performing allocation & mapping.
+create_mapping is the entry point that we exposed to user program, and it’s PageSize-ignostic. Create_mapping further calls allocate_pages_by_bytes and map_allocated_pages to perform actual allocation and mapping. 
 
-By duplicating (and modifying) the functions used for standard page handling, our implementation has a significant code duplication. We initially did this to ease debugging of huge pages by keeping them in a separate path.  This allows us to trace down the two different page managing paths by investigating the codes on the two paths.
-Since the common case is standard sized page support, we avoid adding any overhead for the common cause by keeping a separate code path for huge pages.
+# Improvement over our previous submission
+
+Unified Implementation
+
+Our previous implementation just duplicated every single function or data structure related with page allocation & mapping, which means that our previous implementation was actually separated from the rest of Theseus OS. 
+
+This new submission offers a unified implementation, we used the same underlying data structure and basic framework of logic, and embedded our implementation within it. We modified Page to hold an extra variable called page_size to effectively track the size of page when used in AllocatedPages and MappedPages. This version is available at https://github.com/NamiLiy/Theseus/commits/cpsc626_unified
+
+Language Features
+
+We then extended part a by converting page_size to a trait called PageType and Converting Page, AllocatedPages and MappedPages to generics named Page<PageType>, AllocatedPages<PageType> and MappedPages<PageType>.
+This version is incomplete as not all the places MappedPages are being used are not substituted with generics. Available at https://github.com/NamiLiy/Theseus/tree/cpsc626
+
