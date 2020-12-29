@@ -100,7 +100,7 @@ pub struct MemoryManagementInfo {
     
     /// a list of additional virtual-mapped Pages that have the same lifetime as this MMI
     /// and are thus owned by this MMI, but is not all-inclusive (e.g., Stacks are excluded).
-    pub extra_mapped_pages: Vec<MappedPages>,
+    pub extra_mapped_pages: Vec<MappedPages<Page4K>>,
 }
 
 
@@ -112,7 +112,7 @@ pub struct MemoryManagementInfo {
 /// # Locking / Deadlock
 /// Currently, this function acquires the lock on the frame allocator and the kernel's `MemoryManagementInfo` instance.
 /// Thus, the caller should ensure that the locks on those two variables are not held when invoking this function.
-pub fn create_contiguous_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<(MappedPages, PhysicalAddress), &'static str> {
+pub fn create_contiguous_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<(MappedPages<Page4K>, PhysicalAddress), &'static str> {
     let allocated_pages = allocate_pages_by_bytes(size_in_bytes).ok_or("memory::create_contiguous_mapping(): couldn't allocate pages!")?;
 
     let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_contiguous_mapping(): KERNEL_MMI was not yet initialized!")?;
@@ -135,7 +135,7 @@ pub fn create_contiguous_mapping(size_in_bytes: usize, flags: EntryFlags) -> Res
 /// # Locking / Deadlock
 /// Currently, this function acquires the lock on the `FRAME_ALLOCATOR` and the kernel's `MemoryManagementInfo` instance.
 /// Thus, the caller should ensure that the locks on those two variables are not held when invoking this function.
-pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedPages, &'static str> {
+pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedPages<Page4K>, &'static str> {
     let allocated_pages = allocate_pages_by_bytes(size_in_bytes).ok_or("memory::create_mapping(): couldn't allocate pages!")?;
 
     let kernel_mmi_ref = get_kernel_mmi_ref().ok_or("create_contiguous_mapping(): KERNEL_MMI was not yet initialized!")?;
@@ -150,7 +150,7 @@ pub fn create_mapping(size_in_bytes: usize, flags: EntryFlags) -> Result<MappedP
 
 /// Top level function to get a mapping of `size_in_bytes` as hugepages of page_size. 
 /// Only page_sizes supported by architecture can be obtained as HugePageSizes
-pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : PageSize) -> Result<MappedPages, &'static str> {
+pub fn create_huge_mapping<A: PageType>(size_in_bytes: usize, flags: EntryFlags, page_size : A) -> Result<MappedPages<A>, &'static str> {
     
     // Get AllocatedHugePages for the size of the range needed. 
     let allocated_huge_pages = allocate_huge_pages_by_bytes(size_in_bytes, page_size).ok_or("create_huge_mapping(): couldn't allocate pages!")?;
@@ -166,11 +166,11 @@ pub fn create_huge_mapping(size_in_bytes: usize, flags: EntryFlags, page_size : 
     kernel_mmi.page_table.map_allocated_pages(allocated_huge_pages, flags, frame_allocator.deref_mut())
 }
 
-pub static BROADCAST_TLB_SHOOTDOWN_FUNC: Once<fn(PageRange)> = Once::new();
+pub static BROADCAST_TLB_SHOOTDOWN_FUNC: Once<fn(PageRange<Page4K>)> = Once::new();
 
 /// Set the function callback that will be invoked every time a TLB shootdown is necessary,
 /// i.e., during page table remapping and unmapping operations.
-pub fn set_broadcast_tlb_shootdown_cb(func: fn(PageRange)) {
+pub fn set_broadcast_tlb_shootdown_cb(func: fn(PageRange<Page4K>)) {
     BROADCAST_TLB_SHOOTDOWN_FUNC.call_once(|| func);
 }
 
@@ -193,12 +193,12 @@ pub fn init(boot_info: &BootInformation)
     -> Result<(
         &MutexIrqSafe<AreaFrameAllocator>,
         PageTable,
-        MappedPages,
-        MappedPages,
-        MappedPages,
-        (AllocatedPages, MappedPages),
-        [Option<MappedPages>; 32],
-        [Option<MappedPages>; 32]
+        MappedPages<Page4K>,
+        MappedPages<Page4K>,
+        MappedPages<Page4K>,
+        (AllocatedPages<Page4K>, MappedPages<Page4K>),
+        [Option<MappedPages<Page4K>>; 32],
+        [Option<MappedPages<Page4K>>; 32]
     ), &'static str> 
 {
     // get the start and end addresses of the kernel.
@@ -265,8 +265,8 @@ pub fn init(boot_info: &BootInformation)
 /// Returns the following tuple, if successful:
 ///  * The kernel's new MemoryManagementInfo
 ///  * The kernel's list of identity-mapped MappedPages which should be dropped before starting the first userspace program. 
-pub fn init_post_heap(page_table: PageTable, mut higher_half_mapped_pages: [Option<MappedPages>; 32], mut identity_mapped_pages: [Option<MappedPages>; 32], heap_mapped_pages: MappedPages) 
--> Result<(Arc<MutexIrqSafe<MemoryManagementInfo>>, Vec<MappedPages>), &'static str> 
+pub fn init_post_heap(page_table: PageTable, mut higher_half_mapped_pages: [Option<MappedPages<Page4K>>; 32], mut identity_mapped_pages: [Option<MappedPages<Page4K>>; 32], heap_mapped_pages: MappedPages<Page4K>) 
+-> Result<(Arc<MutexIrqSafe<MemoryManagementInfo>>, Vec<MappedPages<Page4K>>), &'static str> 
 {
     // HERE: heap is initialized! Can now use alloc types.
     // After this point, we must "forget" all of the above mapped_pages instances if an error occurs,
@@ -275,9 +275,9 @@ pub fn init_post_heap(page_table: PageTable, mut higher_half_mapped_pages: [Opti
     page_allocator::convert_to_heap_allocated();
     FRAME_ALLOCATOR.try().ok_or("BUG: FRAME_ALLOCATOR not initialized")?.lock().alloc_ready();
 
-    let mut higher_half_mapped_pages: Vec<MappedPages> = higher_half_mapped_pages.iter_mut().filter_map(|opt| opt.take()).collect();
+    let mut higher_half_mapped_pages: Vec<MappedPages<Page4K>> = higher_half_mapped_pages.iter_mut().filter_map(|opt| opt.take()).collect();
     higher_half_mapped_pages.push(heap_mapped_pages);
-    let identity_mapped_pages: Vec<MappedPages> = identity_mapped_pages.iter_mut().filter_map(|opt| opt.take()).collect();
+    let identity_mapped_pages: Vec<MappedPages<Page4K>> = identity_mapped_pages.iter_mut().filter_map(|opt| opt.take()).collect();
    
     // return the kernel's memory info 
     let kernel_mmi = MemoryManagementInfo {

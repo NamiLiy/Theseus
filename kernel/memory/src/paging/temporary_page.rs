@@ -12,6 +12,7 @@ use paging::{PageTable, MappedPages};
 use super::table::{Table, Level1};
 use super::{Frame, FrameAllocator, VirtualAddress};
 use kernel_config::memory::TEMPORARY_PAGE_VIRT_ADDR;
+use Page4K;
 
 
 /// A Page that can be temporarily mapped to the recursive page table frame,
@@ -19,7 +20,7 @@ use kernel_config::memory::TEMPORARY_PAGE_VIRT_ADDR;
 /// 
 /// See how recursive paging works: <https://wiki.osdev.org/Page_Tables#Recursive_mapping>
 pub struct TemporaryPage {
-    mapped_page: Option<MappedPages>,
+    mapped_page: Option<MappedPages<Page4K>>,
     allocator: TinyAllocator,
 }
 

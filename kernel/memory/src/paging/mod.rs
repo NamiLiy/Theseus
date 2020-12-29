@@ -187,12 +187,12 @@ pub fn init(
     boot_info: &multiboot2::BootInformation
 ) -> Result<(
         PageTable,
-        MappedPages,
-        MappedPages,
-        MappedPages,
-        (AllocatedPages, MappedPages),
-        [Option<MappedPages>; 32],
-        [Option<MappedPages>; 32]
+        MappedPages<Page4K>,
+        MappedPages<Page4K>,
+        MappedPages<Page4K>,
+        (AllocatedPages<Page4K>, MappedPages<Page4K>),
+        [Option<MappedPages<Page4K>>; 32],
+        [Option<MappedPages<Page4K>>; 32]
     ), &'static str>
 {
     // bootstrap a PageTable from the currently-loaded page table
@@ -216,12 +216,12 @@ pub fn init(
     };
     let mut new_table = PageTable::new_table(&mut page_table, new_frame, TemporaryPage::new(temp_frames1))?;
 
-    let mut text_mapped_pages: Option<MappedPages> = None;
-    let mut rodata_mapped_pages: Option<MappedPages> = None;
-    let mut data_mapped_pages: Option<MappedPages> = None;
-    let mut stack_pages: Option<(AllocatedPages, MappedPages)> = None;
-    let mut higher_half_mapped_pages: [Option<MappedPages>; 32] = Default::default();
-    let mut identity_mapped_pages: [Option<MappedPages>; 32] = Default::default();
+    let mut text_mapped_pages: Option<MappedPages<Page4K>> = None;
+    let mut rodata_mapped_pages: Option<MappedPages<Page4K>> = None;
+    let mut data_mapped_pages: Option<MappedPages<Page4K>> = None;
+    let mut stack_pages: Option<(AllocatedPages<Page4K>, MappedPages<Page4K>)> = None;
+    let mut higher_half_mapped_pages: [Option<MappedPages<Page4K>>; 32] = Default::default();
+    let mut identity_mapped_pages: [Option<MappedPages<Page4K>>; 32] = Default::default();
 
     // consumes and auto unmaps temporary page
     page_table.with(&mut new_table, TemporaryPage::new(temp_frames2), |mapper| {
@@ -326,7 +326,7 @@ pub fn init(
             
 
             // map the multiboot boot_info at the same address it is currently at, so we can continue to access boot_info 
-            let boot_info_pages  = PageRange::from_virt_addr(boot_info_start_vaddr, boot_info_size, PageSize::default());
+            let boot_info_pages  = PageRange::from_virt_addr(boot_info_start_vaddr, boot_info_size, Page4K);
             debug!("Boot info covers pages: {:?}", boot_info_pages);
             let boot_info_frames = FrameRange::from_phys_addr(boot_info_start_paddr, boot_info_size);
             let boot_info_pages = page_allocator::allocate_pages_by_bytes_at(boot_info_start_vaddr, boot_info_size)?;

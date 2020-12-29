@@ -51,7 +51,7 @@ impl Mapper {
     /// 
     /// Useful for debugging page faults. 
     pub fn dump_pte(&self, virtual_address: VirtualAddress) {
-        let page = Page::containing_address(virtual_address);
+        let page = Page::containing_address(virtual_address, Page4K);
         let p4 = self.p4();
         let p3 = p4.next_table(page.p4_index());
         let p2 = p3.and_then(|p3| p3.next_table(page.p3_index()));
@@ -82,12 +82,14 @@ impl Mapper {
     pub fn translate(&self, virtual_address: VirtualAddress) -> Option<PhysicalAddress> {
         // get the frame number of the page containing the given virtual address,
         // and then the corresponding physical address is that page frame number * page size + offset
-        self.translate_page(Page::containing_address(virtual_address))
+        self.translate_page(Page::containing_address(virtual_address, Page4K))
             .map(|frame| frame.start_address() + virtual_address.page_offset())
     }
 
     /// Translates a virtual memory `Page` to a physical memory `Frame` by walking the page tables.
-    pub fn translate_page(&self, page: Page) -> Option<Frame> {
+    pub fn translate_page<P>(&self, page: Page<P>) -> Option<Frame> 
+    where P: PageType
+    {
         let p3 = self.p4().next_table(page.p4_index());
 
         let huge_page = || {
@@ -128,9 +130,10 @@ impl Mapper {
     /// Maps the given `AllocatedPages` to the given physical frames.
     /// 
     /// Consumes the given `AllocatedPages` and returns a `MappedPages` object which contains those `AllocatedPages`.
-    pub fn map_allocated_pages_to<A>(&mut self, pages: AllocatedPages, frames: FrameRange, flags: EntryFlags, allocator: &mut A)
-        -> Result<MappedPages, &'static str>
-        where A: FrameAllocator
+    pub fn map_allocated_pages_to<A,P>(&mut self, pages: AllocatedPages<P>, frames: FrameRange, flags: EntryFlags, allocator: &mut A)
+        -> Result<MappedPages<P>, &'static str>
+        where A: FrameAllocator,
+        P : PageType
     {
         // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
         let mut top_level_flags = flags.clone();
@@ -171,9 +174,10 @@ impl Mapper {
     /// Maps the given `AllocatedPages` to randomly chosen (allocated) physical frames.
     /// 
     /// Consumes the given `AllocatedPages` and returns a `MappedPages` object which contains those `AllocatedPages`.
-    pub fn map_allocated_pages<A>(&mut self, pages: AllocatedPages, flags: EntryFlags, allocator: &mut A)
-        -> Result<MappedPages, &'static str>
-        where A: FrameAllocator
+    pub fn map_allocated_pages<A,P>(&mut self, pages: AllocatedPages<P>, flags: EntryFlags, allocator: &mut A)
+        -> Result<MappedPages<P>, &'static str>
+        where A: FrameAllocator,
+        P : PageType
     {
         // P4, P3, and P2 entries should never set NO_EXECUTE, only the lowest-level P1 entry should. 
         let mut top_level_flags = flags.clone();
@@ -183,11 +187,14 @@ impl Mapper {
 
         for page in pages.deref().clone() {
             
-            // TODO_BOWEN : need to support page_size() and huge_page_ratio() for AllocatedPages
-            let frame_set = allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_huge_pages(): couldn't allocate new frame, out of memory!")?;
+
+            // TODO : Again this is not working
+            // let frame_set = allocator.allocate_alligned_frames(pages.page_size().huge_page_ratio(), pages.page_size().huge_page_ratio()).ok_or("map_huge_pages(): couldn't allocate new frame, out of memory!")?;
+
+            let frame_set = allocator.allocate_alligned_frames(4096,4096).ok_or("map_huge_pages(): couldn't allocate new frame, out of memory!")?;
 
             // 4K page
-            if pages.page_size().huge_page_ratio() == 1 {
+            // if pages.page_size().huge_page_ratio() == 1 {
                 let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
                 let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
                 let p1 = p2.next_table_create(page.p2_index(), top_level_flags, allocator);
@@ -201,42 +208,42 @@ impl Mapper {
 
                 p1[page.p1_index()].set(frame_set.start_frame(), flags | EntryFlags::PRESENT);
                 // debug!("4K");
-            }
+            // }
 
             // 2M pages
-            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
-                let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
-                let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
+            // else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+            //     let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+            //     let p2 = p3.next_table_create(page.p3_index(), top_level_flags, allocator);
 
-                if !p2[page.p2_index()].is_unused() {
-                    error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
-                        page.start_address(), frame_set.start_address()
-                    );
-                    return Err("map_allocated_pages(): page was already in use");
-                } 
+            //     if !p2[page.p2_index()].is_unused() {
+            //         error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+            //             page.start_address(), frame_set.start_address()
+            //         );
+            //         return Err("map_allocated_pages(): page was already in use");
+            //     } 
 
-                p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+            //     p2[page.p2_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
                 
-                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
-                // debug!("2M");
-            }
+            //     modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+            //     // debug!("2M");
+            // }
 
-            // 1G pages
-            else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
-                let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
+            // // 1G pages
+            // else if pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+            //     let p3 = self.p4_mut().next_table_create(page.p4_index(), top_level_flags, allocator);
 
-                if !p3[page.p3_index()].is_unused() {
-                    error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
-                        page.start_address(), frame_set.start_address()
-                    );
-                    return Err("map_allocated_pages(): page was already in use");
-                } 
+            //     if !p3[page.p3_index()].is_unused() {
+            //         error!("map_allocated_pages(): page {:#X} -> frame {:#X}, page was already in use!",
+            //             page.start_address(), frame_set.start_address()
+            //         );
+            //         return Err("map_allocated_pages(): page was already in use");
+            //     } 
 
-                p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
+            //     p3[page.p3_index()].set(frame_set.start_frame(), flags | (EntryFlags::PRESENT | EntryFlags::HUGE_PAGE));
 
-                modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
-                // debug!("1G");
-            }
+            //     modified_flags = modified_flags | EntryFlags::HUGE_PAGE;
+            //     // debug!("1G");
+            // }
         }
 
        Ok(MappedPages {
@@ -258,35 +265,35 @@ impl Mapper {
 /// Thus, it ensures memory safety by guaranteeing that this object must be held 
 /// in order to access data stored in these mapped pages, much like a guard type.
 #[derive(Debug)]
-pub struct MappedPages<A: PageType> {
+pub struct MappedPages<P: PageType> {
     /// The Frame containing the top-level P4 page table that this MappedPages was originally mapped into. 
     page_table_p4: Frame,
     /// The range of allocated virtual pages contained by this mapping.
-    pages: AllocatedPages,
+    pages: AllocatedPages<P>,
     // The EntryFlags that define the page permissions of this mapping
     flags: EntryFlags,
 }
-impl Deref for MappedPages {
-    type Target = PageRange;
-    fn deref(&self) -> &PageRange {
+impl <P: PageType>Deref for MappedPages<P> {
+    type Target = PageRange<P>;
+    fn deref(&self) -> &PageRange<P> {
         self.pages.deref()
     }
 }
 
-impl <A: PageType> MappedPages<A> {
+impl <P: PageType> MappedPages<P> {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
     /// TODO_BOWEN : need to make the parameter optional here
-    pub fn empty() -> MappedPages<A> {
-        MappedPages<A> {
+    pub fn empty() -> MappedPages<P> {
+        MappedPages::<P> {
             page_table_p4: get_current_p4(),
-            pages: AllocatedPages::empty(PageType::default()),
+            pages: AllocatedPages::empty(Page4K),
             flags: Default::default(),
         }
     }
 
-    pub fn empty_with_size(page_type : A) -> MappedPages<A> {
-        MappedPages<A> {
+    pub fn empty_with_size(page_type : P) -> MappedPages<P> {
+        MappedPages::<P> {
             page_table_p4: get_current_p4(),
             pages: AllocatedPages::empty(page_type),
             flags: Default::default(),
@@ -314,7 +321,7 @@ impl <A: PageType> MappedPages<A> {
     /// 
     /// # Note
     /// No remapping actions or page reallocations will occur on either a failure or a success.
-    pub fn merge(&mut self, mut mp: MappedPages<A>) -> Result<(), (&'static str, MappedPages<A>)> {
+    pub fn merge(&mut self, mut mp: MappedPages<P>) -> Result<(), (&'static str, MappedPages<P>)> {
         
         // we didn't implement merge function for huge page
         if self.pages.page_size().huge_page_ratio() > 1 {
@@ -361,7 +368,7 @@ impl <A: PageType> MappedPages<A> {
     /// 
     /// Returns a new `MappedPages` object with the same in-memory contents
     /// as this object, but at a completely new memory region.
-    pub fn deep_copy<A: FrameAllocator>(&self, new_flags: Option<EntryFlags>, active_table_mapper: &mut Mapper, allocator: &mut A) -> Result<MappedPages, &'static str> {
+    pub fn deep_copy<A: FrameAllocator>(&self, new_flags: Option<EntryFlags>, active_table_mapper: &mut Mapper, allocator: &mut A) -> Result<MappedPages<P>, &'static str> {
         let size_in_pages = self.size_in_pages();
 
         use paging::allocate_huge_pages;
