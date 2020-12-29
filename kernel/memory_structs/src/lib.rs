@@ -330,12 +330,60 @@ impl PhysicalMemoryArea {
 //     } 
 // }
 
-pub trait PageType: PartialOrd + Sized + Clone + Copy
+pub trait PageType: PartialOrd + Sized + Clone + Copy + 'static
 {
    fn page_size(&self) -> usize;
    fn max_page_number(&self) -> usize;
    fn huge_page_ratio(&self) -> usize;
 }
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct Page4K;
+
+impl PageType for Page4K{
+    fn page_size(&self) -> usize {
+        4096
+    }
+    
+    fn max_page_number(&self) -> usize{
+        MAX_PAGE_NUMBER
+    }
+
+    fn huge_page_ratio(&self) -> usize {
+        1
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct Page2M;
+
+impl PageType for Page2M{
+    fn page_size(&self) -> usize {
+        2*1024*1024
+    }
+    
+    fn max_page_number(&self) -> usize{
+        MAX_PAGE_NUMBER / 512
+    }
+
+    fn huge_page_ratio(&self) -> usize {
+        512
+    }
+}
+
+// impl PageType for Page2M{
+//     fn page_size(&self) -> usize {
+//         self.0
+//     }
+    
+//     fn max_page_number(&self) -> usize{
+//         MAX_PAGE_NUMBER
+//     }
+
+//     fn huge_page_ratio(&self) -> usize {
+//         1
+//     }
+// }
 
 // impl Default for HugePageSize {
 //     fn default() -> Self { HugePageSize(PAGE_SIZE) }
@@ -544,6 +592,13 @@ impl <A: PageType> fmt::Debug for Page<A> {
     }
 }
 
+pub const fn containing4k_address(virt_addr: VirtualAddress) -> Page<Page4K> {
+    Page::<Page4K> {
+        number: virt_addr.value() / PAGE_SIZE,
+        page_size: Page4K,
+    }
+}
+
 impl<A: PageType> Page<A> {
     /// Returns the `Page` that contains the given `VirtualAddress`.
     pub fn containing_address(virt_addr: VirtualAddress, page_type: A) -> Page<A> {
@@ -553,16 +608,18 @@ impl<A: PageType> Page<A> {
         }
     }
 
+    
+
     /// Returns the `VirtualAddress` as the start of this `Page`.
     pub fn start_address(&self) -> VirtualAddress {
         // Cannot create VirtualAddress directly because the field is private
         VirtualAddress::new_canonical(self.number * self.page_size.page_size())
     }
 
-    // /// Convenience function to get the number of normal page at the first location of huge frame
-    // pub fn corresponding_normal_page(&self) -> Page {
-    //     Page::containing_address(self.start_address())
-    // }
+    /// Convenience function to get the number of normal page at the first location of huge frame
+    pub fn corresponding_normal_page(&self) -> Page<Page4K> {
+        Page::containing_address(self.start_address(), Page4K)
+    }
 
     // /// Convenience function to get the hugepage covering a normal page
     // pub fn from_normal_page(page : Page, page_size: PageType) -> Page {
