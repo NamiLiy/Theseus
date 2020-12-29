@@ -39,7 +39,7 @@ pub fn alloc_stack<FA>(
 /// `pages` is the combined `AllocatedPages` object that holds
 /// the guard page followed by the actual stack pages to be mapped.
 fn inner_alloc_stack<FA>(
-    pages: AllocatedPages,
+    pages: AllocatedPages<Page4K>,
     page_table: &mut Mapper, 
     frame_allocator_ref: &FrameAllocatorRef<FA>,
 ) -> Option<Stack> where FA: FrameAllocator {

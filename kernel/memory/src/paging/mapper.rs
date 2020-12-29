@@ -284,15 +284,8 @@ impl <P: PageType> MappedPages<P> {
     /// Returns an empty MappedPages object that performs no allocation or mapping actions. 
     /// Can be used as a placeholder, but will not permit any real usage. 
     /// TODO_BOWEN : need to make the parameter optional here
-    pub fn empty() -> MappedPages<P> {
-        MappedPages::<P> {
-            page_table_p4: get_current_p4(),
-            pages: AllocatedPages::empty(Page4K),
-            flags: Default::default(),
-        }
-    }
 
-    pub fn empty_with_size(page_type : P) -> MappedPages<P> {
+    pub fn empty(page_type : P) -> MappedPages<P> {
         MappedPages::<P> {
             page_table_p4: get_current_p4(),
             pages: AllocatedPages::empty(page_type),
@@ -323,36 +316,38 @@ impl <P: PageType> MappedPages<P> {
     /// No remapping actions or page reallocations will occur on either a failure or a success.
     pub fn merge(&mut self, mut mp: MappedPages<P>) -> Result<(), (&'static str, MappedPages<P>)> {
         
+        // TODO Namitha. Won;t work without this
         // we didn't implement merge function for huge page
-        if self.pages.page_size().huge_page_ratio() > 1 {
-            return Err(("Merge not yet implemented for huge pages", mp));
-        }
+        // if self.pages.page_size().huge_page_ratio() > 1 {
+        //     return Err(("Merge not yet implemented for huge pages", mp));
+        // }
         
-        if mp.page_table_p4 != self.page_table_p4 {
-            error!("MappedPages::merge(): mappings weren't mapped using the same page table: {:?} vs. {:?}",
-                self.page_table_p4, mp.page_table_p4);
-            return Err(("failed to merge MappedPages that were mapped into different page tables", mp));
-        }
-        if mp.flags != self.flags {
-            error!("MappedPages::merge(): mappings had different flags: {:?} vs. {:?}",
-                self.flags, mp.flags);
-            return Err(("failed to merge MappedPages that were mapped with different flags", mp));
-        }
+        // if mp.page_table_p4 != self.page_table_p4 {
+        //     error!("MappedPages::merge(): mappings weren't mapped using the same page table: {:?} vs. {:?}",
+        //         self.page_table_p4, mp.page_table_p4);
+        //     return Err(("failed to merge MappedPages that were mapped into different page tables", mp));
+        // }
+        // if mp.flags != self.flags {
+        //     error!("MappedPages::merge(): mappings had different flags: {:?} vs. {:?}",
+        //         self.flags, mp.flags);
+        //     return Err(("failed to merge MappedPages that were mapped with different flags", mp));
+        // }
 
-        // Attempt to merge the page ranges together, which will fail if they're not contiguous.
-        // First, take ownership of the AllocatedPages inside of the `mp` argument.
-        let second_alloc_pages_owned = core::mem::replace(&mut mp.pages, AllocatedPages::empty(self.pages.page_size()));
-        if let Err(orig) = self.pages.merge(second_alloc_pages_owned) {
-            // Upon error, restore the `mp.pages` AllocatedPages that we took ownership of.
-            mp.pages = orig;
-            error!("MappedPages::merge(): mappings not virtually contiguous: first ends at {:?}, second starts at {:?}",
-                self.pages.end(), mp.pages.start()
-            );
-            return Err(("failed to merge MappedPages that weren't virtually contiguous", mp));
-        }
+        // // Attempt to merge the page ranges together, which will fail if they're not contiguous.
+        // // First, take ownership of the AllocatedPages inside of the `mp` argument.
+        // // TODO WRONG
+        // let second_alloc_pages_owned = core::mem::replace(&mut mp.pages, AllocatedPages::empty());
+        // if let Err(orig) = self.pages.merge(second_alloc_pages_owned) {
+        //     // Upon error, restore the `mp.pages` AllocatedPages that we took ownership of.
+        //     mp.pages = orig;
+        //     error!("MappedPages::merge(): mappings not virtually contiguous: first ends at {:?}, second starts at {:?}",
+        //         self.pages.end(), mp.pages.start()
+        //     );
+        //     return Err(("failed to merge MappedPages that weren't virtually contiguous", mp));
+        // }
 
-        // Ensure the existing mapping doesn't run its drop handler and unmap its pages.
-        mem::forget(mp); 
+        // // Ensure the existing mapping doesn't run its drop handler and unmap its pages.
+        // mem::forget(mp); 
         Ok(())
     }
 
@@ -369,35 +364,36 @@ impl <P: PageType> MappedPages<P> {
     /// Returns a new `MappedPages` object with the same in-memory contents
     /// as this object, but at a completely new memory region.
     pub fn deep_copy<A: FrameAllocator>(&self, new_flags: Option<EntryFlags>, active_table_mapper: &mut Mapper, allocator: &mut A) -> Result<MappedPages<P>, &'static str> {
-        let size_in_pages = self.size_in_pages();
+        // let size_in_pages = self.size_in_pages();
 
-        use paging::allocate_huge_pages;
-        let new_pages = allocate_huge_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
+        // use paging::allocate_huge_pages;
+        // let new_pages = allocate_huge_pages(size_in_pages, self.pages.page_size()).ok_or_else(|| "Couldn't allocate_pages()")?;
 
-        // we must temporarily map the new pages as Writable, since we're about to copy data into them
-        let new_flags = new_flags.unwrap_or(self.flags);
-        let needs_remapping = new_flags.is_writable(); 
-        let mut new_mapped_pages = active_table_mapper.map_allocated_pages(
-            new_pages, 
-            new_flags | EntryFlags::WRITABLE, // force writable
-            allocator
-        )?;
+        // // we must temporarily map the new pages as Writable, since we're about to copy data into them
+        // let new_flags = new_flags.unwrap_or(self.flags);
+        // let needs_remapping = new_flags.is_writable(); 
+        // let mut new_mapped_pages = active_table_mapper.map_allocated_pages(
+        //     new_pages, 
+        //     new_flags | EntryFlags::WRITABLE, // force writable
+        //     allocator
+        // )?;
 
-        // perform the actual copy of in-memory content
-        // TODO: there is probably a better way to do this, e.g., `rep stosq/movsq` or something
-        // TODO_BOWEN : do we need to change the PAGE_SIZE here ?
-        {
-            type PageContent = [u8; PAGE_SIZE];
-            let source: &[PageContent] = self.as_slice(0, size_in_pages)?;
-            let dest: &mut [PageContent] = new_mapped_pages.as_slice_mut(0, size_in_pages)?;
-            dest.copy_from_slice(source);
-        }
+        // // perform the actual copy of in-memory content
+        // // TODO: there is probably a better way to do this, e.g., `rep stosq/movsq` or something
+        // // TODO_BOWEN : do we need to change the PAGE_SIZE here ?
+        // {
+        //     type PageContent = [u8; PAGE_SIZE];
+        //     let source: &[PageContent] = self.as_slice(0, size_in_pages)?;
+        //     let dest: &mut [PageContent] = new_mapped_pages.as_slice_mut(0, size_in_pages)?;
+        //     dest.copy_from_slice(source);
+        // }
 
-        if needs_remapping {
-            new_mapped_pages.remap(active_table_mapper, new_flags)?;
-        }
+        // if needs_remapping {
+        //     new_mapped_pages.remap(active_table_mapper, new_flags)?;
+        // }
         
-        Ok(new_mapped_pages)
+        // Ok(new_mapped_pages)
+        Err("Temporary blocked")
     }
 
     
@@ -412,7 +408,7 @@ impl <P: PageType> MappedPages<P> {
 
         for page in self.pages.clone() {
             // 4K
-            if self.pages.page_size().huge_page_ratio() == 1 {
+            // if self.pages.page_size().huge_page_ratio() == 1 {
                 let p1 = active_table_mapper.p4_mut()
                     .next_table_mut(page.p4_index())
                     .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -421,37 +417,37 @@ impl <P: PageType> MappedPages<P> {
                 
                 let frame = p1[page.p1_index()].pointed_frame().ok_or("remap(): page not mapped")?;
                 p1[page.p1_index()].set(frame, new_flags | EntryFlags::PRESENT);
-            }
+            // }
 
             // 2M
-            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
-                let p2 = active_table_mapper.p4_mut()
-                    .next_table_mut(page.p4_index())
-                    .and_then(|p3| p3.next_table_mut(page.p3_index()))
-                    .ok_or("mapping code does not support huge pages")?;
+            // if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+            //     let p2 = active_table_mapper.p4_mut()
+            //         .next_table_mut(page.p4_index())
+            //         .and_then(|p3| p3.next_table_mut(page.p3_index()))
+            //         .ok_or("mapping code does not support huge pages")?;
                 
-                let frame = p2[page.p2_index()].pointed_frame().ok_or("remap(): page not mapped")?;
-                p2[page.p2_index()].set(frame, new_flags | EntryFlags::PRESENT);
-            }
+            //     let frame = p2[page.p2_index()].pointed_frame().ok_or("remap(): page not mapped")?;
+            //     p2[page.p2_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            // }
 
-            // 1G
-            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
-                let p3 = active_table_mapper.p4_mut()
-                    .next_table_mut(page.p4_index())
-                    .ok_or("mapping code does not support huge pages")?;
+            // // 1G
+            // if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+            //     let p3 = active_table_mapper.p4_mut()
+            //         .next_table_mut(page.p4_index())
+            //         .ok_or("mapping code does not support huge pages")?;
                 
-                let frame = p3[page.p3_index()].pointed_frame().ok_or("remap(): page not mapped")?;
-                p3[page.p3_index()].set(frame, new_flags | EntryFlags::PRESENT);
-            }
+            //     let frame = p3[page.p3_index()].pointed_frame().ok_or("remap(): page not mapped")?;
+            //     p3[page.p3_index()].set(frame, new_flags | EntryFlags::PRESENT);
+            // }
 
             tlb_flush_virt_addr(page.start_address());
         }
 
-        if self.pages.page_size().huge_page_ratio() == 1 {
-            if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-                func(self.pages.deref().clone());
-            }
-        }
+        // if self.pages.page_size().huge_page_ratio() == 1 {
+            // if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
+            //     func(self.pages.deref().clone());
+            // }
+        // }
 
         self.flags = new_flags;
         Ok(())
@@ -468,7 +464,7 @@ impl <P: PageType> MappedPages<P> {
         for page in self.pages.clone() {            
             
             // 4K page
-            if self.pages.page_size().huge_page_ratio() == 1 {
+            // if self.pages.page_size().huge_page_ratio() == 1 {
                 let p1 = active_table_mapper.p4_mut()
                 .next_table_mut(page.p4_index())
                 .and_then(|p3| p3.next_table_mut(page.p3_index()))
@@ -477,28 +473,28 @@ impl <P: PageType> MappedPages<P> {
 
                 let _frame = p1[page.p1_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
                 p1[page.p1_index()].set_unused();
-            }
+            // }
 
-            // 2M page
-            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
-                let p2 = active_table_mapper.p4_mut()
-                .next_table_mut(page.p4_index())
-                .and_then(|p3| p3.next_table_mut(page.p3_index()))
-                .ok_or("mapping code does not support huge pages")?;
+            // // 2M page
+            // if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE {
+            //     let p2 = active_table_mapper.p4_mut()
+            //     .next_table_mut(page.p4_index())
+            //     .and_then(|p3| p3.next_table_mut(page.p3_index()))
+            //     .ok_or("mapping code does not support huge pages")?;
 
-                let _frame = p2[page.p2_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
-                p2[page.p2_index()].set_unused();
-            }
+            //     let _frame = p2[page.p2_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
+            //     p2[page.p2_index()].set_unused();
+            // }
 
-            // 1G page
-            if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
-                let p3 = active_table_mapper.p4_mut()
-                .next_table_mut(page.p4_index())
-                .ok_or("mapping code does not support huge pages")?;
+            // // 1G page
+            // if self.pages.page_size().huge_page_ratio() == ENTRIES_PER_PAGE_TABLE*ENTRIES_PER_PAGE_TABLE {
+            //     let p3 = active_table_mapper.p4_mut()
+            //     .next_table_mut(page.p4_index())
+            //     .ok_or("mapping code does not support huge pages")?;
 
-                let _frame = p3[page.p3_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
-                p3[page.p3_index()].set_unused();
-            }
+            //     let _frame = p3[page.p3_index()].pointed_frame().ok_or("unmap(): huge page not mapped")?;
+            //     p3[page.p3_index()].set_unused();
+            // }
 
             tlb_flush_virt_addr(page.start_address());
             
@@ -506,15 +502,15 @@ impl <P: PageType> MappedPages<P> {
             // _allocator_ref.lock().deallocate_frame(frame);
         }
 
-        if self.pages.page_size().huge_page_ratio() == 1
-        {
-            #[cfg(not(bm_map))]
-            {
-                if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
-                    func(self.pages.deref().clone());
-                }
-            }
-        }
+        // if self.pages.page_size().huge_page_ratio() == 1
+        // {
+        //     #[cfg(not(bm_map))]
+        //     {
+        //         if let Some(func) = BROADCAST_TLB_SHOOTDOWN_FUNC.try() {
+        //             func(self.pages.deref().clone());
+        //         }
+        //     }
+        // }
 
         Ok(())
     }

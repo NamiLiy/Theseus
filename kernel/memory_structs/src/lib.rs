@@ -330,7 +330,7 @@ impl PhysicalMemoryArea {
 //     } 
 // }
 
-pub trait PageType: PartialOrd + Sized + Clone + Copy + 'static
+pub trait PageType: PartialOrd + Sized + Clone + Copy + fmt::Debug + 'static
 {
    fn page_size(&self) -> usize;
    fn max_page_number(&self) -> usize;

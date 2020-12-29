@@ -162,7 +162,7 @@ impl <A: PageType> AllocatedPages<A> {
 	// 	})
 	// }
 
-	// pub fn page_size(&self) -> PageSize {
+	// pub fn page_size(&self) -> dyn PageType {
 	// 	*(&self.pages.page_size())
 	// }
 
