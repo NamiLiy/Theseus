@@ -15,6 +15,7 @@ Bowen Huang :  50%
 # How to run
 
 Test application : applications/huge_page_test
+
 This application creates pages of 4KB, 2MB and 1GB depending on architectural support.
 
 # Description
